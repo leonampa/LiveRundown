@@ -2,7 +2,7 @@
 
 LiveRundown is an open-source, real-time theatrical rundown engine coded with Gemini 3.1 Pro and Claude Sonnet 4.6, designed to replace static paper scripts for backstage crews. Built for low-latency, multi-device synchronization, it ensures stage managers, lighting operators, and audio technicians stay locked to the exact same cue line globally, compiled as a single HTML file, hosted on Netlify, and powered by Firebase.
 
-### See live: [https://leonampa.github.io/liverundown](https://leonampa.github.io/liverundown)
+### See live: [https://leonampa.github.io/liverundown/demo](https://leonampa.github.io/liverundown/demo)
 > Real-time global device syncing is disabled to protect my Firebase free-tier usage limits from public API abuse. The UI navigation, hardware key bindings, and markdown parser are fully functional locally.
 
 <img width="1191" height="1022" alt="image" src="https://github.com/user-attachments/assets/12e23f69-13c5-48c6-a1ed-5437a8d380f6" />
