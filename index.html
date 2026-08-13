@@ -1,0 +1,2180 @@
+<!-- ✏️ EDIT VARIABLES (Firebase config, color tags, etc) between lines 897 and 925 - or search for '✏️' with Ctrl+F -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LiveRundown</title>
+
+    <!-- Firebase SDKs — used for the realtime cross-device sync feature -->
+    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+
+    <!-- pdfmake — used to generate the exportable PDF version of the script -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.2.10/pdfmake.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.2.10/vfs_fonts.js"></script>
+
+    <style>
+        /* Global color scheme, shared by both the CSS below and referenced conceptually by the PDF export */
+        :root {
+            --bg-color: #4a4a4a;
+            --row-bg: #666666;
+            --action-bg: #3a3a3a;
+            --text-light: #ffffff;
+            --text-dark: #000000;
+            --active-bg: #ffffff;
+        }
+        body {
+            margin: 0;
+            background-color: var(--bg-color);
+            color: var(--text-light);
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            cursor: pointer;
+        }
+        /* Initial screen: file picker shown until a script is loaded (auto or manual) */
+        #upload-container {
+            padding: 20px;
+            text-align: center;
+            background: #222;
+            z-index: 100;
+            cursor: default;
+        }
+        /* Scrollable area holding one row per script line */
+        #script-container {
+            flex-grow: 1;
+            overflow-y: auto;
+            padding: 20px 20px 120px 20px; 
+            scroll-behavior: smooth;
+            scroll-padding-top: 100px;
+        }
+        /* A single dialogue line: actor tag + spoken text */
+        .line-row {
+            display: flex;
+            background-color: var(--row-bg);
+            margin-bottom: 10px;
+            border-radius: 8px;
+            font-size: 24px;
+            align-items: center;
+            transition: all 0.1s ease;
+        }
+        /* A stage direction / scene marker line (e.g. "[ENTER STAGE LEFT]") */
+        .action-row {
+            display: flex;
+            background-color: var(--action-bg);
+            margin-bottom: 10px;
+            border-radius: 8px;
+            font-size: 20px;
+            align-items: center;
+            justify-content: center;
+            padding: 15px;
+            color: #b0b0b0;
+            font-style: italic;
+            text-align: center;
+            transition: all 0.1s ease;
+        }
+        /* ── MY LINES ────────────────────────────────────────
+           Applied when one or more actors are selected via long-press
+           on a dash-block (see initMyLinesGestures()). Dialogue lines
+           with none of the selected actors, and dash-blocks for
+           non-selected actors, drop to 25% opacity. Action rows are
+           left untouched — they're stage instructions, not "someone
+           else's" lines. */
+        .line-row.dimmed, .dash-block.dimmed {
+            opacity: 0.25;
+        }
+
+        /* Highlight style applied to whichever line is currently "live" */
+        .line-row.active, .action-row.active {
+            background-color: var(--active-bg);
+            color: var(--text-dark);
+            transform: scale(1.01);
+            box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+            font-weight: bold;
+        }
+        /* Colored label showing which actor(s) speak a line; background is set inline per-row (solid color or gradient for multi-actor lines) */
+        .actor-tag {
+            padding: 15px 20px;
+            font-weight: bold;
+            border-radius: 8px 0 0 8px;
+            min-width: 80px;
+            text-align: center;
+            color: white;
+            text-shadow: 1px 1px 2px rgba(0,0,0,0.5);
+        }
+        .dialogue { padding: 15px 20px; flex-grow: 1; }
+
+        /* ── DASHBOARD ───────────────────────────────────────
+           Fixed bottom bar: one block per character, showing how many
+           lines until they next speak (or highlighted if it's their line now). */
+        #dashboard {
+            position: fixed;
+            bottom: 0; left: 0; right: 0;
+            background: #333;
+            display: flex;
+            padding: 10px;
+            padding-right: 400px; /* room for the collapse toggle + HIDE BAR + EXPORT + TIMER + SYNC buttons */
+            gap: 5px;
+            overflow-x: auto;
+            border-top: 2px solid #222;
+        }
+        .dash-block {
+            display: flex;
+            flex-direction: column;
+            width: 80px;
+            text-align: center;
+            border-radius: 4px;
+            overflow: hidden;
+            flex-shrink: 0;
+        }
+        .dash-name { font-size: 12px; padding: 5px; font-weight: bold; color: white; }
+        .dash-count { background: #555; color: white; font-size: 32px; padding: 5px; transition: background 0.2s, color 0.2s; }
+        .dash-block.active .dash-count { color: #ff3333; font-weight: bold; }
+
+        /* ── COUNTDOWN VISUAL WARNINGS ─────────────────────────
+           Gated by SHOW_COUNTDOWN_WARNINGS. "approaching" = within
+           WARNING_THRESHOLD lines (black text on white). "imminent" =
+           0 or 1 lines away — solid white-on-red, or flashing
+           white-on-red / white-on-grey if FLASHING_EFFECTS is on. */
+        .dash-count.approaching { background: rgb(255, 255, 255); color: #000000; }
+        .dash-count.imminent { background: #cc2222; color: #ffffff; }
+        .dash-count.imminent.flashing { animation: dash-flash 0.6s steps(1) infinite; }
+        @keyframes dash-flash {
+            0%, 49%  { background: #cc2222; color: #ffffff; }
+            50%, 100% { background: #666666; color: #ffffff; }
+        }
+
+        /* ── MY LINES: LONG-PRESS WAVE FEEDBACK ────────────────*/
+        .dash-block { position: relative; }
+        .press-wave {
+            position: absolute;
+            inset: 0;
+            border-radius: 4px;
+            border: 2px solid #555;
+            pointer-events: none;
+            animation: press-wave-anim 1s ease-out forwards;
+        }
+        @keyframes press-wave-anim {
+            0%   { transform: scale(1);    opacity: 0.8; }
+            100% { transform: scale(1.35); opacity: 0; }
+        }
+
+        /* ── SYNC BUTTON ─────────────────────────────────────*/
+        #sync-btn {
+            position: fixed;
+            bottom: 10px; right: 10px;
+            width: 80px;
+            display: flex;
+            flex-direction: column;
+            text-align: center;
+            border-radius: 4px;
+            overflow: hidden;
+            cursor: pointer;
+            z-index: 200;
+            user-select: none;
+            transition: transform 0.1s;
+        }
+                #sync-btn-top {
+            font-size: 12px;
+            padding: 5px;
+            font-weight: bold;
+            color: white;
+            background: #555;
+            transition: background 0.3s;
+        }
+        #sync-btn-bottom {
+            background: #444;
+            font-size: 32px;
+            padding: 5px 5px 3px 5px;
+            line-height: 1;
+        }
+        #sync-btn.broadcasting #sync-btn-top { background: #1565c0; }
+        #sync-btn.following    #sync-btn-top { background: #2e7d32; }
+        #sync-btn:active { transform: scale(0.96); }
+
+        /* ── SYNC PANEL ───────────────────────────────────────
+           Popup with the broadcast toggle, name input, and list of
+           other active broadcasts to follow. */
+        #sync-panel {
+            position: fixed;
+            bottom: 90px; right: 10px;
+            width: 280px;
+            background: #2a2a2a;
+            border-radius: 10px;
+            border: 1px solid #444;
+            box-shadow: 0 -4px 28px rgba(0,0,0,0.75);
+            z-index: 300;
+            overflow: hidden;
+            display: none;
+            flex-direction: column;
+            cursor: default;
+        }
+        #sync-panel-header {
+            background: #1a1a1a;
+            padding: 12px 16px;
+            font-weight: bold;
+            font-size: 15px;
+            letter-spacing: 0.4px;
+        }
+        #sync-panel-body {
+            padding: 14px 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+        .sync-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            font-size: 14px;
+        }
+
+        /* ── EXPORT BUTTON ────────────────────────────────────
+           Opens the export panel (font size / page size / Export PDF). */
+        #export-btn {
+            position: fixed;
+            bottom: 10px; right: 190px;
+            width: 80px;
+            display: flex;
+            flex-direction: column;
+            text-align: center;
+            border-radius: 4px;
+            overflow: hidden;
+            cursor: pointer;
+            z-index: 200;
+            user-select: none;
+            transition: transform 0.1s;
+        }
+        #export-btn:active { transform: scale(0.96); }
+        #export-btn-top {
+            font-size: 12px;
+            padding: 5px;
+            font-weight: bold;
+            color: white;
+            background: #555;
+        }
+        #export-btn-bottom {
+            background: #444;
+            font-size: 32px;
+            padding: 5px 5px 3px 5px;
+            line-height: 1;
+        }
+
+        /* ── TIMER BUTTON ─────────────────────────────────────
+           Opens the timer/log panel. Sits between EXPORT and SYNC.
+           The top (grey) half turns white while the timer is running. */
+        #timer-btn {
+            position: fixed;
+            bottom: 10px; right: 100px;
+            width: 80px;
+            display: flex;
+            flex-direction: column;
+            text-align: center;
+            border-radius: 4px;
+            overflow: hidden;
+            cursor: pointer;
+            z-index: 200;
+            user-select: none;
+            transition: transform 0.1s;
+        }
+        #timer-btn:active { transform: scale(0.96); }
+        #timer-btn-top {
+            font-size: 12px;
+            padding: 5px;
+            font-weight: bold;
+            color: #ffffff;
+            background: #555;
+            transition: background 0.3s, color 0.3s;
+        }
+        #timer-btn.running #timer-btn-top {
+            background: #ffffff;
+            color: #000;
+        }
+        #timer-btn-bottom {
+            background: #444;
+            font-size: 32px;
+            padding: 5px 5px 3px 5px;
+            line-height: 1;
+        }
+
+        /* ── TIMER PANEL ───────────────────────────────────────
+           Popup with Start/Pause + Reset. Expands to show the log
+           block + Download TXT once at least one <LOG> line has
+           been logged during the current running session. */
+        #timer-panel {
+            position: fixed;
+            bottom: 90px; right: 100px;
+            width: 260px;
+            background: #2a2a2a;
+            border-radius: 10px;
+            border: 1px solid #444;
+            box-shadow: 0 -4px 28px rgba(0,0,0,0.75);
+            z-index: 300;
+            overflow: hidden;
+            display: none;
+            flex-direction: column;
+            cursor: default;
+        }
+        #timer-panel-header {
+            background: #1a1a1a;
+            padding: 12px 16px;
+            font-weight: bold;
+            font-size: 15px;
+            letter-spacing: 0.4px;
+        }
+        #timer-panel-body {
+            padding: 14px 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+        #timer-display {
+            font-family: 'Courier New', monospace;
+            font-size: 32px;
+            text-align: center;
+            letter-spacing: 1px;
+            color: #fff;
+        }
+        .timer-controls-row {
+            display: flex;
+            gap: 10px;
+        }
+        .timer-btn-action {
+            flex: 1;
+            border: none;
+            border-radius: 8px;
+            padding: 10px;
+            font-size: 14px;
+            font-weight: bold;
+            cursor: pointer;
+            color: white;
+        }
+        #timer-start-pause { background: #2e7d32; }
+        #timer-start-pause:hover { background: #388e3c; }
+        #timer-start-pause.is-pause { background: #b71c1c; }
+        #timer-start-pause.is-pause:hover { background: #c62828; }
+        #timer-reset { background: #444; }
+        #timer-reset:hover { background: #555; }
+
+        /* Log block — shown only once >=1 log exists. Non-editable, monospace,
+           one "timestamp  text" line per logged <LOG> hit, in log order. */
+        #timer-log-section { display: none; flex-direction: column; gap: 10px; }
+        #timer-log-block {
+            background: #1a1a1a;
+            border: 1px solid #444;
+            border-radius: 6px;
+            padding: 10px 12px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            line-height: 1.6;
+            color: #ddd;
+            max-height: 180px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            word-break: break-word;
+            user-select: text;
+        }
+        #timer-download-btn {
+            background: #1565c0;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            padding: 10px;
+            font-size: 14px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+        #timer-download-btn:hover { background: #1976d2; }
+
+        /* ── TIMER RESET CONFIRM POPUP ────────────────────────
+           Shown instead of an immediate reset when logs exist,
+           since Reset would otherwise silently discard them. */
+        #timer-reset-confirm {
+            position: fixed;
+            bottom: 90px; right: 100px;
+            width: 220px;
+            background: #2a2a2a;
+            border-radius: 10px;
+            border: 1px solid #444;
+            box-shadow: 0 -4px 28px rgba(0,0,0,0.75);
+            z-index: 310;
+            overflow: hidden;
+            display: none;
+            flex-direction: column;
+            cursor: default;
+        }
+        #timer-reset-confirm-text {
+            padding: 14px 16px 10px 16px;
+            font-size: 14px;
+            text-align: center;
+        }
+        #timer-reset-confirm-yes {
+            background: #b71c1c;
+            color: white;
+            border: none;
+            padding: 10px;
+            font-size: 14px;
+            font-weight: bold;
+            cursor: pointer;
+            margin: 0 16px 14px 16px;
+            border-radius: 8px;
+        }
+        #timer-reset-confirm-yes:hover { background: #c62828; }
+
+        /* ── HIDE BAR BUTTON ──────────────────────────────────
+           Opens a confirm popup, then hides the dashboard + all three
+           buttons for a clean, distraction-free view during a performance. */
+        #hide-bar-btn {
+            position: fixed;
+            bottom: 10px; right: 280px;
+            width: 80px;
+            display: flex;
+            flex-direction: column;
+            text-align: center;
+            border-radius: 4px;
+            overflow: hidden;
+            cursor: pointer;
+            z-index: 200;
+            user-select: none;
+            transition: transform 0.1s;
+        }
+        #hide-bar-btn:active { transform: scale(0.96); }
+        #hide-bar-btn-top {
+            font-size: 12px;
+            padding: 5px;
+            font-weight: bold;
+            color: white;
+            background: #555;
+        }
+        #hide-bar-btn-bottom {
+            background: #444;
+            font-size: 32px;
+            padding: 5px 5px 3px 5px;
+            line-height: 1;
+        }
+
+        /* ── BUTTON-GROUP COLLAPSE TOGGLE ──────────────────────
+           A thin strip (not a full button like the other three): solid
+           grey, no top/bottom split, single centered icon.
+           Expanded (default): sits left of HIDE BAR (right:275px), ▶️ icon
+           — click to collapse.
+           Collapsed: moves to the very right edge of the screen (right:10px),
+           🔴/🟢/🔵 icon mirroring the current sync state (same colors/logic
+           as updateSyncUI()) — click to expand.
+           When collapsed, hide-bar-btn / export-btn / sync-btn are hidden. */
+        #btn-group-toggle {
+            position: fixed;
+            bottom: 10px; right: 365px;
+            width: 25px; height: 66px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #555555;
+            border-radius: 4px;
+            cursor: pointer;
+            z-index: 210;
+            user-select: none;
+            font-size: 16px;
+            line-height: 1;
+            transition: transform 0.1s;
+        }
+        #btn-group-toggle.collapsed { right: 10px; }
+        #btn-group-toggle:active { transform: scale(0.96); }
+
+        #hide-bar-confirm {
+            position: fixed;
+            bottom: 90px; right: 280px;
+            width: 200px;
+            background: #2a2a2a;
+            border-radius: 10px;
+            border: 1px solid #444;
+            box-shadow: 0 -4px 28px rgba(0,0,0,0.75);
+            z-index: 300;
+            overflow: hidden;
+            display: none;
+            flex-direction: column;
+            cursor: default;
+        }
+        #hide-bar-confirm-text {
+            padding: 14px 16px 10px 16px;
+            font-size: 14px;
+            text-align: center;
+        }
+        #hide-bar-confirm-yes {
+            background: #b71c1c;
+            color: white;
+            border: none;
+            padding: 10px;
+            font-size: 14px;
+            font-weight: bold;
+            cursor: pointer;
+            margin: 0 16px 14px 16px;
+            border-radius: 8px;
+        }
+        #hide-bar-confirm-yes:hover { background: #c62828; }
+
+        /* ── REVEAL ICON ─────────────────────────────────────── */
+        #reveal-btn {
+            position: fixed;
+            bottom: 6px; right: 6px;
+            width: 22px; height: 22px;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            font-size: 13px;
+            color: #666;
+            background: transparent;
+            cursor: pointer;
+            z-index: 200;
+            user-select: none;
+            opacity: 0.5;
+            transition: opacity 0.15s;
+        }
+        #reveal-btn:hover { opacity: 1; }
+
+        /* Reusable iOS-style toggle switch (used for the broadcast on/off control) */
+        .toggle-wrap {
+            position: relative;
+            width: 46px; height: 26px;
+            flex-shrink: 0;
+        }
+        .toggle-wrap input { opacity: 0; width: 0; height: 0; position: absolute; }
+        .toggle-track {
+            position: absolute;
+            inset: 0;
+            background: #555;
+            border-radius: 26px;
+            transition: background 0.2s;
+            cursor: pointer;
+        }
+        .toggle-thumb {
+            position: absolute;
+            top: 3px; left: 3px;
+            width: 20px; height: 20px;
+            background: white;
+            border-radius: 50%;
+            transition: transform 0.2s;
+            pointer-events: none;
+        }
+        .toggle-wrap input:checked ~ .toggle-track { background: #1e88e5; }
+        .toggle-wrap input:checked ~ .toggle-thumb { transform: translateX(20px); }
+        .toggle-wrap.disabled { opacity: 0.35; pointer-events: none; }
+
+        /* Name input row, shown only while broadcasting is active */
+        #broadcast-name-row { display: none; }
+        #broadcast-name-input {
+            width: 100%;
+            background: #3a3a3a;
+            border: 1px solid #555;
+            border-radius: 6px;
+            color: white;
+            padding: 8px 10px;
+            font-size: 14px;
+            font-family: 'Courier New', monospace;
+            box-sizing: border-box;
+        }
+        #broadcast-name-input:focus { outline: none; border-color: #1e88e5; }
+
+        /* Uppercase small-caps section label style, e.g. "Available broadcasts:" */
+        .sync-label {
+            font-size: 11px;
+            color: #666;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            font-weight: bold;
+        }
+        /* Scrollable list of other active broadcasters found via Firebase */
+        #broadcasts-list {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            max-height: 160px;
+            overflow-y: auto;
+        }
+        /* One row per broadcaster; clicking it starts/stops following them */
+        .broadcast-item {
+            background: #383838;
+            border-radius: 6px;
+            padding: 9px 12px;
+            font-size: 13px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border: 1px solid transparent;
+            transition: background 0.15s;
+        }
+        .broadcast-item:hover { background: #484848; }
+        .broadcast-item.selected { background: #1b3a24; border-color: #388e3c; }
+        .broadcast-dot {
+            width: 8px; height: 8px;
+            border-radius: 50%;
+            background: #43a047;
+            flex-shrink: 0;
+        }
+        #no-broadcasts-msg {
+            font-size: 13px;
+            color: #555;
+            font-style: italic;
+            text-align: center;
+            padding: 12px 0;
+        }
+        /* Footer showing current sync status: colored dot + text (Idle / broadcaster name / who we're following) */
+        #sync-panel-footer {
+            background: #1a1a1a;
+            padding: 10px 16px;
+            display: flex;
+            align-items: center;
+            gap: 9px;
+            font-size: 13px;
+        }
+        #sync-status-indicator {
+            width: 11px; height: 11px;
+            border-radius: 50%;
+            background: #cc2222;
+            flex-shrink: 0;
+            transition: background 0.3s;
+        }
+        #sync-status-text { color: #999; font-size: 13px; }
+
+        /* ── EXPORT PANEL ─────────────────────────────────────
+           Popup with font size / page size controls and the Export PDF button. */
+        #export-panel {
+            position: fixed;
+            bottom: 90px; right: 100px;
+            width: 240px;
+            background: #2a2a2a;
+            border-radius: 10px;
+            border: 1px solid #444;
+            box-shadow: 0 -4px 28px rgba(0,0,0,0.75);
+            z-index: 300;
+            overflow: hidden;
+            display: none;
+            flex-direction: column;
+            cursor: default;
+        }
+        #export-panel-header {
+            background: #1a1a1a;
+            padding: 12px 16px;
+            font-weight: bold;
+            font-size: 15px;
+            letter-spacing: 0.4px;
+        }
+        #export-panel-body {
+            padding: 14px 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+        .export-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            font-size: 14px;
+            gap: 10px;
+        }
+        .export-row input[type="number"] {
+            width: 64px;
+            background: #1a1a1a;
+            border: 1px solid #555;
+            border-radius: 6px;
+            color: white;
+            padding: 6px 8px;
+            font-size: 14px;
+        }
+        .export-row select {
+            background: #1a1a1a;
+            border: 1px solid #555;
+            border-radius: 6px;
+            color: white;
+            padding: 6px 8px;
+            font-size: 14px;
+        }
+        #export-confirm-btn {
+            background: #1565c0;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            padding: 10px;
+            font-size: 14px;
+            font-weight: bold;
+            cursor: pointer;
+            margin-top: 4px;
+        }
+        #export-confirm-btn:hover { background: #1976d2; }
+
+        /* ── TOAST ────────────────────────────────────────────
+           Small transient notification bubble (errors, sync status changes). */
+        #sync-toast {
+            position: fixed;
+            bottom: 96px; right: 10px;
+            background: #3a3a3a;
+            border: 1px solid #555;
+            color: white;
+            padding: 8px 14px;
+            border-radius: 8px;
+            font-size: 13px;
+            z-index: 500;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+        #sync-toast.show { opacity: 1; }
+
+        /* ── GITHUB CREDIT ────────────────────────────────────
+           Small, unobtrusive link pinned to the bottom-right of the
+           scrollable script area (sits just above the dashboard bar,
+           scrolls with the page rather than floating over content). */
+        #github-credit {
+            display: flex;
+            justify-content: flex-end;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 4px 0 4px;
+            font-size: 11px;
+            color: #888;
+            opacity: 0.6;
+            transition: opacity 0.15s;
+            cursor: default;
+        }
+        #github-credit:hover { opacity: 1; }
+        #github-credit a {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            color: #aaa;
+            text-decoration: none;
+        }
+        #github-credit a:hover { color: #fff; }
+        #github-credit svg { width: 13px; height: 13px; fill: currentColor; flex-shrink: 0; }
+    </style>
+</head>
+<body>
+
+<!-- Shown at startup until a script is loaded, either automatically (script.md) or via manual upload -->
+<div id="upload-container">
+    <p>Searching for script.md... If not found, upload here:</p>
+    <input type="file" id="fileInput" accept=".md,.txt">
+</div>
+
+<!-- One row per script line gets rendered here by renderScript() -->
+<div id="script-container"></div>
+<!-- One block per character gets rendered here by initDashboard() / updateDashboard() -->
+<div id="dashboard"></div>
+
+<!-- ── BUTTON-GROUP COLLAPSE TOGGLE (always visible, far right) ──── -->
+<div id="btn-group-toggle">
+    <span id="btn-group-toggle-bottom">▶️</span>
+</div>
+
+<!-- ── HIDE BAR BUTTON ──────────────────────────── -->
+<div id="hide-bar-btn">
+    <div id="hide-bar-btn-top">HIDE BAR</div>
+    <div id="hide-bar-btn-bottom">🙈</div>
+</div>
+
+<!-- ── HIDE BAR CONFIRM POPUP ───────────────────── -->
+<div id="hide-bar-confirm">
+    <div id="hide-bar-confirm-text">Hide the bottom bar? Recover it with the eye icon. (bottom right)</div>
+    <button id="hide-bar-confirm-yes">YES</button>
+</div>
+
+<!-- ── EXPORT BUTTON ──────────────────────────── -->
+<div id="export-btn">
+    <div id="export-btn-top">EXPORT</div>
+    <div id="export-btn-bottom">📄</div>
+</div>
+
+<!-- ── TIMER BUTTON (top half turns white while running) ──────────────────────────── -->
+<div id="timer-btn">
+    <div id="timer-btn-top">TIMER</div>
+    <div id="timer-btn-bottom">⏱️</div>
+</div>
+
+<!-- ── SYNC BUTTON (color/icon updated live by updateSyncUI) ──────────────────────────── -->
+<div id="sync-btn" class="idle">
+    <div id="sync-btn-top">SYNC</div>
+    <div id="sync-btn-bottom">🔴</div>
+</div>
+
+<!-- ── REVEAL ICON (only visible when bar is hidden) ── -->
+<div id="reveal-btn">👁️</div>
+
+<!-- ── SYNC PANEL: broadcast toggle, name field, list of other broadcasters to follow ───── -->
+<div id="sync-panel">
+    <div id="sync-panel-header">🔄 Sync Options</div>
+    <div id="sync-panel-body">
+
+        <div class="sync-row">
+            <span>Broadcast my index?</span>
+            <label class="toggle-wrap" id="broadcast-toggle-wrap">
+                <input type="checkbox" id="broadcast-toggle">
+                <div class="toggle-track"></div>
+                <div class="toggle-thumb"></div>
+            </label>
+        </div>
+
+        <!-- Only shown while broadcasting is on -->
+        <div id="broadcast-name-row">
+            <input type="text" id="broadcast-name-input" placeholder="Type your name...">
+        </div>
+
+        <div>
+            <div class="sync-label" style="margin-bottom: 8px;">Available broadcasts:</div>
+            <!-- Populated by renderBroadcastsList() from live Firebase data -->
+            <div id="broadcasts-list">
+                <div id="no-broadcasts-msg">No active broadcasts found.</div>
+            </div>
+        </div>
+
+    </div>
+    <div id="sync-panel-footer">
+        <div id="sync-status-indicator"></div>
+        <span id="sync-status-text">Idle</span>
+    </div>
+</div>
+
+<!-- ── TIMER PANEL: Start/Pause + Reset, expands to show the log block once >=1 log exists ── -->
+<div id="timer-panel">
+    <div id="timer-panel-header">⏱️ Timer</div>
+    <div id="timer-panel-body">
+        <div id="timer-display">00:00:00</div>
+        <div class="timer-controls-row">
+            <button class="timer-btn-action" id="timer-start-pause">Start</button>
+            <button class="timer-btn-action" id="timer-reset">Reset</button>
+        </div>
+        <div id="timer-log-section">
+            <div class="sync-label">Log</div>
+            <div id="timer-log-block"></div>
+            <button id="timer-download-btn">Download TXT</button>
+        </div>
+    </div>
+</div>
+
+<!-- ── TIMER RESET CONFIRM POPUP (only shown when logs exist) ──────────────────── -->
+<div id="timer-reset-confirm">
+    <div id="timer-reset-confirm-text">Reset will also clear the log. Continue?</div>
+    <button id="timer-reset-confirm-yes">YES</button>
+</div>
+
+<!-- ── EXPORT PANEL: PDF font size / page size / trigger ────────────────────────────── -->
+<div id="export-panel">
+    <div id="export-panel-header">📄 Export Options</div>
+    <div id="export-panel-body">
+        <div class="export-row">
+            <span>Font size (pt)</span>
+            <input type="number" id="export-font-size" value="12" min="6" max="24">
+        </div>
+        <div class="export-row">
+            <span>Page size</span>
+            <select id="export-page-size">
+                <option value="A4">A4</option>
+                <option value="LETTER">US Letter</option>
+            </select>
+        </div>
+        <button id="export-confirm-btn">Export PDF</button>
+    </div>
+</div>
+
+<!-- Transient notification bubble, driven by showToast() -->
+<div id="sync-toast"></div>
+
+<script>
+    // ════════════════════════════════════════════════════
+    //  CORE VARIABLES
+    // ════════════════════════════════════════════════════
+
+    // ✏️ Firebase project config used for the cross-device sync feature.
+    // If apiKey is left as the placeholder, sync stays disabled (see INIT below).
+    const FIREBASE_CONFIG = {
+        apiKey:            "YOUR_API_KEY",
+        authDomain:        "YOUR_PROJECT.firebaseapp.com",
+        databaseURL:       "https://YOUR_PROJECT-default-rtdb.europe-west1.firebasedatabase.app",
+        projectId:         "YOUR_PROJECT",
+        storageBucket:     "YOUR_PROJECT.appspot.com",
+        messagingSenderId: "YOUR_SENDER_ID",
+        appId:             "YOUR_APP_ID"
+    };
+
+    // ✏️ Markdown syntax markers recognized by the script parser.
+    const PIN_MARKER       = '<PIN>';       // "NAME <PIN>" pins a character to the front of the countdown order. Pins have to be declared at the very top of script.md, before any other lines. (invisible on the live page)
+    const PAGEBREAK_MARKER = '<PAGEBREAK>'; // its own line forces a hard page break in the PDF export (invisible on the live page)
+    const LOG_MARKER       = '<LOG>';       // prefix on any line — the rest of the line still parses normally (as dialogue/action/heading), but the line is also timestamped in the Timer's log when reached, while the timer is running. (invisible on the live page)
+
+    // ✏️ Colors assigned to characters in order of first appearance (or PIN order).
+    const colorPalette = [
+        '#ff0000','#00aa00','#0000ff','#ff00ff','#ff8c00',
+        '#cccc00','#00cccc','#8a2be2','#ff1493','#00ced1',
+        '#adff2f','#888888','#1e90ff','#815129','#30703D',
+        '#000077','#C6A664','#924E7D','#cc4400'
+    ];
+
+    // ✏️ Countdown dashboard visual proximity warnings.
+    const SHOW_COUNTDOWN_WARNINGS = true; // master toggle for the black/red proximity coloring below. If false, dash counts stay in their normal look always.
+    const WARNING_THRESHOLD       = 5;    // lines-remaining cutoff for entering the "approaching" (black-on-white) state.
+    const FLASHING_EFFECTS        = true; // if true, a countdown of 0 or 1 flashes white-on-red/white-on-grey; if false, it's solid white-on-red (accessibility option).
+
+    // Parsed script state — populated by parseScript().
+    let charColors = {}, characters = [], scriptLines = [];
+
+    // ── MY LINES state ──────────────────────────────────────
+    // Set of actor names currently selected via long-press on their
+    // dash-block. Empty set = feature is off, everything renders normally.
+    // Never persisted — resets on reload by design (script.md is always
+    // reloaded fresh anyway, and broadcasters can't change scripts mid-show).
+    let myLinesSelection = new Set();
+    let currentIndex = -1, clickTimer = null;
+
+    // PDF export tuning — sizes are in pt at PDF_BASE_FONT_SIZE; buildDialogueCards()
+    // and buildActionCard() scale these proportionally to the user's chosen export font size.
+    const PDF_BASE_FONT_SIZE      = 12;   // pt — reference size all proportions below are tuned for
+    const PDF_BASE_TAG_WIDTH      = 60;   // pt, actor tag column width at base font size
+    const PDF_BASE_TAG_HEIGHT     = 30;   // pt, actor tag column height at base font size
+    const PDF_MAX_CHARS_PER_CHUNK = 5000; // max chars per dialogue chunk before it's split across cards, at base font size 
+    const PDF_MONOLOGUE_LINE_HEIGHT = 1.35; // extra spacing between wrapped lines within the same block of dialogue text (pdfmake default is ~1.0)
+
+    // Export panel state — remembered across exports in this session (resets on page reload).
+    let lastExportFontSize = PDF_BASE_FONT_SIZE;
+    let lastExportPageSize = 'A4';
+
+    // Sync feature state.
+    const ANIMALS = [
+        'Fox','Leopard','Tiger','Bear','Wolf','Eagle','Hawk',
+        'Owl','Lynx','Puma','Jaguar','Falcon','Raven','Cobra',
+        'Crane','Heron','Bison','Otter','Viper','Moose'
+    ];
+    let myName          = 'Anonymous ' + ANIMALS[Math.floor(Math.random() * ANIMALS.length)];
+    let syncState        = 'idle';   // 'idle' | 'broadcasting' | 'following'
+    let followingName    = null;
+    let myBroadcastRef    = null;
+    let followRef         = null;
+    let heartbeatTimer    = null;
+    let firebaseReady     = false;
+    let db                = null;
+    let syncPanelOpen     = false;
+    let exportPanelOpen   = false;
+    let lastAvailable     = {};
+    let toastTimer        = null;
+
+    // Bottom-bar visibility state (Hide Bar feature).
+    let barHidden           = false;
+    let hideConfirmPending  = false;
+
+    // Button-group collapse state (separate from Hide Bar — this only
+    // collapses the 3 action buttons into one small sync-colored toggle;
+    // the dashboard/countdowns stay visible). Always starts expanded.
+    let btnGroupCollapsed = false;
+
+    // ── TIMER + LOG state ─────────────────────────────────
+    let timerRunning       = false;
+    let timerElapsedMs     = 0;     // accumulated elapsed time while paused
+    let timerStartedAt     = null;  // Date.now() when current running segment started (null while paused)
+    let timerTickInterval  = null;
+    let timerPanelOpen     = false;
+    let timerResetPending  = false;
+    let logEntries         = [];    // { timestampMs, text } — one per <LOG> line hit while running, in order
+
+    function formatTimerMs(ms) {
+        const totalSec = Math.floor(ms / 1000);
+        const h = Math.floor(totalSec / 3600);
+        const m = Math.floor((totalSec % 3600) / 60);
+        const s = totalSec % 60;
+        const pad = n => String(n).padStart(2, '0');
+        return `${pad(h)}:${pad(m)}:${pad(s)}`;
+    }
+
+    function currentTimerMs() {
+        return timerElapsedMs + (timerRunning ? (Date.now() - timerStartedAt) : 0);
+    }
+
+    function updateTimerDisplay() {
+        document.getElementById('timer-display').textContent = formatTimerMs(currentTimerMs());
+    }
+
+    function startTimer() {
+        if (timerRunning) return;
+        timerRunning = true;
+        timerStartedAt = Date.now();
+        document.getElementById('timer-btn').classList.add('running');
+        const btn = document.getElementById('timer-start-pause');
+        btn.textContent = 'Pause';
+        btn.classList.add('is-pause');
+        updateTimerDisplay();
+        timerTickInterval = setInterval(updateTimerDisplay, 1000);
+    }
+
+    function pauseTimer() {
+        if (!timerRunning) return;
+        timerElapsedMs += Date.now() - timerStartedAt;
+        timerRunning = false;
+        timerStartedAt = null;
+        document.getElementById('timer-btn').classList.remove('running');
+        const btn = document.getElementById('timer-start-pause');
+        btn.textContent = 'Start';
+        btn.classList.remove('is-pause');
+        clearInterval(timerTickInterval);
+        timerTickInterval = null;
+        updateTimerDisplay();
+    }
+
+    function toggleStartPause() {
+        if (timerRunning) pauseTimer(); else startTimer();
+    }
+
+    function doResetTimer() {
+        pauseTimer();
+        timerElapsedMs = 0;
+        logEntries = [];
+        updateTimerDisplay();
+        updateLogSection();
+    }
+
+    // Reset button — asks for confirmation first if any logs exist (Reset
+    // would otherwise silently discard them), resets immediately otherwise.
+    function requestResetTimer() {
+        if (logEntries.length > 0) {
+            timerResetPending = true;
+            document.getElementById('timer-reset-confirm').style.display = 'flex';
+        } else {
+            doResetTimer();
+        }
+    }
+
+    // Appends a <LOG> hit to the log list, timestamped against the current
+    // timer time. No-op if the timer isn't running (caller should already
+    // guard this, but double-checked here since it's the source of truth).
+    function addLogEntry(text) {
+        if (!timerRunning) return;
+        logEntries.push({ timestampMs: currentTimerMs(), text });
+        updateLogSection();
+    }
+
+    // Shows/hides + repopulates the log block. The panel only expands past
+    // "just a timer" once at least one log entry exists.
+    function updateLogSection() {
+        const section = document.getElementById('timer-log-section');
+        if (logEntries.length === 0) {
+            section.style.display = 'none';
+            return;
+        }
+        section.style.display = 'flex';
+        const block = document.getElementById('timer-log-block');
+        block.textContent = logEntries.map(e => `${formatTimerMs(e.timestampMs)}  ${e.text}`).join('\n');
+    }
+
+    function downloadLogTxt() {
+        const content = logEntries.map(e => `${formatTimerMs(e.timestampMs)}  ${e.text}`).join('\n');
+        const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD — same convention as script-<date>.pdf
+        const blob = new Blob([content], { type: 'text/plain' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `logs-${today}.txt`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    }
+
+
+    // Shared helper: given a list of actor names, return equal-width vertical
+    // color bands (left → right, in actor order) for a split tag background.
+    // Used by BOTH the live webpage (CSS gradient) and the PDF export (rects).
+    function getTagColorStops(actors) {
+        const n = actors.length;
+        return actors.map((a, i) => ({
+            color: charColors[a],
+            startPct: (i / n) * 100,
+            endPct: ((i + 1) / n) * 100
+        }));
+    }
+
+    function tagBackgroundCSS(actors) {
+        if (actors.length === 1) return charColors[actors[0]];
+        const stops = getTagColorStops(actors);
+        const parts = stops.map(s => `${s.color} ${s.startPct}% ${s.endPct}%`);
+        return `linear-gradient(to right, ${parts.join(', ')})`;
+    }
+
+
+    // ── PDF EXPORT ───────────────────────────────────────
+
+    function estimateTagWidth(actors, fontSize, baseTagWidth) {
+        const label = actors.join(' & ');
+        const avgCharWidth = fontSize * 0.62;
+        const textWidth = label.length * avgCharWidth;
+        const padding = fontSize * 2;
+        return Math.max(baseTagWidth * (fontSize / PDF_BASE_FONT_SIZE), textWidth + padding);
+    }
+
+    // Build the colored rect stripes for a tag, sized to the tag box.
+    function pdfTagCanvas(actors, tagWidth, tagHeight) {
+        const stops = getTagColorStops(actors);
+        return stops.map(s => ({
+            type: 'rect',
+            x: (s.startPct / 100) * tagWidth,
+            y: 0,
+            w: ((s.endPct - s.startPct) / 100) * tagWidth,
+            h: tagHeight,
+            color: s.color
+        }));
+    }
+
+    function pdfTagCell(actors, fontSize, tagWidth, tagHeight) {
+        return {
+            stack: [
+                { canvas: pdfTagCanvas(actors, tagWidth, tagHeight) },
+                {
+                    text: actors.join(' & '),
+                    color: 'white',
+                    bold: true,
+                    fontSize: fontSize - 1,
+                    alignment: 'center',
+                    relativePosition: { x: 0, y: -tagHeight + (tagHeight * 0.3) }
+                }
+            ]
+        };
+    }
+
+    // Splits dialogue text into page-safe chunks on word boundaries.
+    // Chunk size scales down as font size grows (bigger text = less fits per page).
+    function splitDialogueForPDF(text, fontSize) {
+        const scaledMax = Math.round(PDF_MAX_CHARS_PER_CHUNK * (PDF_BASE_FONT_SIZE / fontSize));
+        if (text.length <= scaledMax) return [text];
+        const words = text.split(' ');
+        const chunks = [];
+        let current = '';
+        for (const w of words) {
+            if ((current + ' ' + w).length > scaledMax) {
+                chunks.push(current.trim());
+                current = w;
+            } else {
+                current += (current ? ' ' : '') + w;
+            }
+        }
+        if (current.trim()) chunks.push(current.trim());
+        return chunks;
+    }
+
+    // Zero-border, zero-padding table layout — used so cards look like
+    // plain flowing blocks rather than a visible spreadsheet table.
+    const PDF_NO_BORDER_LAYOUT = {
+        hLineWidth: () => 0,
+        vLineWidth: () => 0,
+        paddingLeft: () => 0,
+        paddingRight: () => 0,
+        paddingTop: () => 0,
+        paddingBottom: () => 0
+    };
+
+    // A dialogue line becomes 1+ pdfmake content blocks (>1 only if the line
+    // was too long to safely fit a single page and had to be manually split;
+    // in that case each chunk repeats the colored tag, as if it were a new line).
+    function buildDialogueCards(actors, dialogue, fontSize) {
+        const scale = fontSize / PDF_BASE_FONT_SIZE;
+        const tagWidth  = estimateTagWidth(actors, fontSize, PDF_BASE_TAG_WIDTH); 
+        const tagHeight = PDF_BASE_TAG_HEIGHT * scale;
+        const padV = 8 * scale, padH = 12 * scale;
+        const chunks = splitDialogueForPDF(dialogue, fontSize);
+        return chunks.map(chunk => ({
+            table: {
+                widths: [tagWidth, '*'],
+                dontBreakRows: true, // keep each card atomic -> orphan/widow-safe like Word
+                body: [[
+                    pdfTagCell(actors, fontSize, tagWidth, tagHeight),
+                    {
+                        text: parseItalicSegments(chunk).map(seg => ({ text: seg.text, italics: seg.italic, color: '#000000' })),
+                        fontSize: fontSize,
+                        lineHeight: PDF_MONOLOGUE_LINE_HEIGHT, // extra breathing room between wrapped lines of the same block
+                        margin: [padH, padV, 0, padV]
+                    }
+                ]]
+            },
+            layout: PDF_NO_BORDER_LAYOUT,
+            margin: [0, 0, 0, 8 * scale]
+        }));
+    }
+
+    // Action/scene lines (e.g. [SCENE...], (stage direction)) get the same
+    // orphan-safe treatment as dialogue cards.
+    function buildActionCard(text, fontSize) {
+        const scale = fontSize / PDF_BASE_FONT_SIZE;
+        const padV = 8 * scale, padH = 10 * scale;
+        return {
+            table: {
+                widths: ['*'],
+                dontBreakRows: true,
+                body: [[
+                    { text, italics: true, color: '#666666', alignment: 'center', fontSize: fontSize - 1, margin: [padH, padV, padH, padV] }
+                ]]
+            },
+            layout: PDF_NO_BORDER_LAYOUT,
+            margin: [0, 0, 0, 8 * scale]
+        };
+    }
+
+    function exportScriptToPDF(fontSize, pageSize) {
+        if (!scriptLines.length) {
+            showToast('⚠️ No script loaded to export.');
+            return;
+        }
+        const content = [];
+        scriptLines.forEach(line => {
+            if (line.type === 'pagebreak') {
+                content.push({ text: '', pageBreak: 'after' });
+            } else if (line.type === 'action') {
+                content.push(buildActionCard(line.text, fontSize));
+            } else {
+                content.push(...buildDialogueCards(line.actors, line.dialogue, fontSize));
+            }
+        });
+
+        const docDefinition = {
+            pageSize: pageSize,
+            pageMargins: [30, 30, 30, 40],
+            content,
+            footer: function (currentPage) {
+                return {
+                    text: String(currentPage),
+                    alignment: 'right',
+                    margin: [0, 0, 30, 10],
+                    fontSize: 10,
+                    color: '#444444'
+                };
+            }
+        };
+
+        const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+        pdfMake.createPdf(docDefinition).download(`script-${today}.pdf`);
+    }
+
+    function toggleExportPanel() {
+        exportPanelOpen = !exportPanelOpen;
+        document.getElementById('export-panel').style.display = exportPanelOpen ? 'flex' : 'none';
+        if (exportPanelOpen) {
+            document.getElementById('export-font-size').value = lastExportFontSize;
+            document.getElementById('export-page-size').value = lastExportPageSize;
+            // Only one panel visible at a time — close Sync / Timer / Hide-confirm if open.
+            if (syncPanelOpen) {
+                syncPanelOpen = false;
+                document.getElementById('sync-panel').style.display = 'none';
+            }
+            if (timerPanelOpen) {
+                timerPanelOpen = false;
+                document.getElementById('timer-panel').style.display = 'none';
+            }
+            if (hideConfirmPending) {
+                hideConfirmPending = false;
+                document.getElementById('hide-bar-confirm').style.display = 'none';
+            }
+        }
+    }
+
+    // ── TIMER PANEL ────────────────────────────────────────
+    function toggleTimerPanel() {
+        timerPanelOpen = !timerPanelOpen;
+        document.getElementById('timer-panel').style.display = timerPanelOpen ? 'flex' : 'none';
+        if (timerPanelOpen) {
+            updateTimerDisplay();
+            updateLogSection();
+            // Only one panel visible at a time — close Sync / Export / Hide-confirm if open.
+            if (syncPanelOpen) {
+                syncPanelOpen = false;
+                document.getElementById('sync-panel').style.display = 'none';
+            }
+            if (exportPanelOpen) {
+                exportPanelOpen = false;
+                document.getElementById('export-panel').style.display = 'none';
+            }
+            if (hideConfirmPending) {
+                hideConfirmPending = false;
+                document.getElementById('hide-bar-confirm').style.display = 'none';
+            }
+        } else if (timerResetPending) {
+            // Closing the timer panel with the reset-confirm still open dismisses it too.
+            timerResetPending = false;
+            document.getElementById('timer-reset-confirm').style.display = 'none';
+        }
+    }
+
+    document.getElementById('timer-btn').addEventListener('click', e => {
+        e.stopPropagation();
+        toggleTimerPanel();
+    });
+    // Timer panel — prevent body click from advancing lines
+    document.getElementById('timer-panel').addEventListener('click', e => e.stopPropagation());
+    document.getElementById('timer-reset-confirm').addEventListener('click', e => e.stopPropagation());
+
+    document.getElementById('timer-start-pause').addEventListener('click', e => {
+        e.stopPropagation();
+        toggleStartPause();
+    });
+    document.getElementById('timer-reset').addEventListener('click', e => {
+        e.stopPropagation();
+        requestResetTimer();
+    });
+    document.getElementById('timer-reset-confirm-yes').addEventListener('click', e => {
+        e.stopPropagation();
+        timerResetPending = false;
+        document.getElementById('timer-reset-confirm').style.display = 'none';
+        doResetTimer();
+    });
+    document.getElementById('timer-download-btn').addEventListener('click', e => {
+        e.stopPropagation();
+        downloadLogTxt();
+    });
+
+    // Export button — toggle the export options panel
+    document.getElementById('export-btn').addEventListener('click', e => {
+        e.stopPropagation();
+        toggleExportPanel();
+    });
+    // Export panel — prevent body click from advancing lines
+    document.getElementById('export-panel').addEventListener('click', e => e.stopPropagation());
+
+    // Export button inside the panel — validate inputs, then generate and download the PDF
+    document.getElementById('export-confirm-btn').addEventListener('click', () => {
+        const fontSizeInput = document.getElementById('export-font-size');
+        const fontSize = parseFloat(fontSizeInput.value);
+        const pageSize = document.getElementById('export-page-size').value;
+
+        if (!Number.isFinite(fontSize) || fontSize < 6 || fontSize > 24) {
+            showToast('⚠️ Font size must be between 6 and 24pt.');
+            return;
+        }
+
+        lastExportFontSize = fontSize;
+        lastExportPageSize = pageSize;
+        exportScriptToPDF(fontSize, pageSize);
+        toggleExportPanel();
+    });
+
+
+    // ── HIDE BAR ─────────────────────────────────────────
+    // Hides the dashboard and all three control buttons for a clean,
+    // distraction-free view; only the small reveal icon remains.
+    function hideBottomBar() {
+        barHidden = true;
+        document.getElementById('dashboard').style.display = 'none';
+        document.getElementById('hide-bar-btn').style.display = 'none';
+        document.getElementById('export-btn').style.display = 'none';
+        document.getElementById('timer-btn').style.display = 'none';
+        document.getElementById('sync-btn').style.display = 'none';
+        document.getElementById('btn-group-toggle').style.display = 'none';
+        document.getElementById('hide-bar-confirm').style.display = 'none';
+        // Also close any open panels — their trigger buttons are gone now.
+        // Note: the timer itself keeps running in the background if it was
+        // running — only the panel/buttons are hidden, same as sync staying
+        // connected while the bar is hidden.
+        syncPanelOpen = false;
+        exportPanelOpen = false;
+        timerPanelOpen = false;
+        timerResetPending = false;
+        document.getElementById('sync-panel').style.display = 'none';
+        document.getElementById('export-panel').style.display = 'none';
+        document.getElementById('timer-panel').style.display = 'none';
+        document.getElementById('timer-reset-confirm').style.display = 'none';
+        document.getElementById('reveal-btn').style.display = 'flex';
+    }
+
+    function revealBottomBar() {
+        barHidden = false;
+        document.getElementById('dashboard').style.display = 'flex';
+        document.getElementById('btn-group-toggle').style.display = 'flex';
+        // Restore the 3 buttons only if the group wasn't left collapsed —
+        // setBtnGroupCollapsed() already knows how to show/hide them correctly.
+        setBtnGroupCollapsed(btnGroupCollapsed);
+        document.getElementById('reveal-btn').style.display = 'none';
+    }
+
+    function toggleHideBarConfirm() {
+        hideConfirmPending = !hideConfirmPending;
+        document.getElementById('hide-bar-confirm').style.display = hideConfirmPending ? 'flex' : 'none';
+        if (hideConfirmPending) {
+            // Only one panel/popup visible at a time.
+            if (syncPanelOpen) {
+                syncPanelOpen = false;
+                document.getElementById('sync-panel').style.display = 'none';
+            }
+            if (exportPanelOpen) {
+                exportPanelOpen = false;
+                document.getElementById('export-panel').style.display = 'none';
+            }
+            if (timerPanelOpen) {
+                timerPanelOpen = false;
+                document.getElementById('timer-panel').style.display = 'none';
+            }
+        }
+    }
+
+    document.getElementById('hide-bar-btn').addEventListener('click', e => {
+        e.stopPropagation();
+        // Clicking HIDE BAR again while the confirm popup is open dismisses it (acts as "NO").
+        toggleHideBarConfirm();
+    });
+    document.getElementById('hide-bar-confirm').addEventListener('click', e => e.stopPropagation());
+    document.getElementById('hide-bar-confirm-yes').addEventListener('click', e => {
+        e.stopPropagation();
+        hideConfirmPending = false;
+        hideBottomBar();
+    });
+    document.getElementById('reveal-btn').addEventListener('click', e => {
+        e.stopPropagation();
+        revealBottomBar();
+    });
+
+
+    // ── BUTTON-GROUP COLLAPSE TOGGLE ──────────────────────
+    // Collapses HIDE BAR / EXPORT / SYNC into a single small button showing
+    // the current sync status color (🔴/🟢/🔵). Does not affect the sync
+    // connection itself — purely a UI declutter for mid-show use. Always
+    // starts expanded on page load (not persisted).
+    function setBtnGroupCollapsed(collapsed) {
+        btnGroupCollapsed = collapsed;
+        const toggle = document.getElementById('btn-group-toggle');
+        const toggleIcon = document.getElementById('btn-group-toggle-bottom');
+
+        document.getElementById('hide-bar-btn').style.display = collapsed ? 'none' : 'flex';
+        document.getElementById('export-btn').style.display   = collapsed ? 'none' : 'flex';
+        document.getElementById('timer-btn').style.display    = collapsed ? 'none' : 'flex';
+        document.getElementById('sync-btn').style.display     = collapsed ? 'none' : 'flex';
+
+        toggle.classList.toggle('collapsed', collapsed);
+        toggleIcon.textContent = collapsed ? document.getElementById('sync-btn-bottom').textContent : '▶️';
+
+        // Collapsing hides the buttons that open these panels/popups — close
+        // any that happen to be open so nothing is left stranded on screen.
+        // The timer itself (if running) keeps running in the background.
+        if (collapsed) {
+            if (syncPanelOpen) {
+                syncPanelOpen = false;
+                document.getElementById('sync-panel').style.display = 'none';
+            }
+            if (exportPanelOpen) {
+                exportPanelOpen = false;
+                document.getElementById('export-panel').style.display = 'none';
+            }
+            if (timerPanelOpen) {
+                timerPanelOpen = false;
+                document.getElementById('timer-panel').style.display = 'none';
+            }
+            if (timerResetPending) {
+                timerResetPending = false;
+                document.getElementById('timer-reset-confirm').style.display = 'none';
+            }
+            if (hideConfirmPending) {
+                hideConfirmPending = false;
+                document.getElementById('hide-bar-confirm').style.display = 'none';
+            }
+        }
+    }
+
+    document.getElementById('btn-group-toggle').addEventListener('click', e => {
+        e.stopPropagation();
+        setBtnGroupCollapsed(!btnGroupCollapsed);
+    });
+
+
+    // ── INIT ─────────────────────────────────────────────
+
+    // Only attempt Firebase init if the config has actually been filled in;
+    // otherwise the app runs with sync disabled and firebaseReady stays false.
+    if (FIREBASE_CONFIG.apiKey !== 'YOUR_API_KEY') {
+        try {
+            firebase.initializeApp(FIREBASE_CONFIG);
+            db = firebase.database();
+            firebaseReady = true;
+            listenToBroadcasts();
+        } catch (e) {
+            console.error('Firebase init failed:', e);
+        }
+    }
+
+    // Pre-fill the name field with the randomly generated default name
+    document.getElementById('broadcast-name-input').value = myName;
+    document.getElementById('broadcast-name-input').addEventListener('change', onNameChange);
+    document.getElementById('broadcast-name-input').addEventListener('keydown', e => e.stopPropagation());
+    document.getElementById('broadcast-name-input').addEventListener('click',   e => e.stopPropagation());
+
+    // Sync button — toggle panel
+    document.getElementById('sync-btn').addEventListener('click', e => {
+        e.stopPropagation();
+        toggleSyncPanel();
+    });
+
+    // Sync panel — prevent body click from advancing lines
+    document.getElementById('sync-panel').addEventListener('click', e => e.stopPropagation());
+
+    // Broadcast toggle checkbox
+    document.getElementById('broadcast-toggle').addEventListener('change', onBroadcastToggle);
+
+    // Auto-load script — window.onload matches the original code's pattern
+    // and fires safely after all resources, avoiding any CDN timing race
+    window.onload = () => {
+        fetch('script.md')
+            .then(r => r.ok ? r.text() : Promise.reject())
+            .then(text => {
+                parseScript(text);
+                document.getElementById('upload-container').style.display = 'none';
+            })
+            .catch(() => console.log('script.md not found, waiting for upload.'));
+    };
+
+
+    // ── FIREBASE ─────────────────────────────────────────
+    // Realtime Database layout: broadcasts/<name> = { index, lastSeen }
+    // Each connected device is either idle, broadcasting its own currentIndex,
+    // or following another device's index in realtime.
+
+    // Subscribes to the whole broadcasts/ node and keeps lastAvailable
+    // in sync with any broadcaster whose heartbeat is still fresh (<30s old).
+    function listenToBroadcasts() {
+        db.ref('broadcasts').on('value', snapshot => {
+            const now = Date.now();
+            lastAvailable = {};
+            snapshot.forEach(child => {
+                const d = child.val();
+                if (!d) return;
+                // Filter stale (> 30 seconds since heartbeat)
+                if (now - (d.lastSeen || 0) > 30000) return;
+                // Don't list ourselves
+                if (syncState === 'broadcasting' && child.key === myName) return;
+                lastAvailable[child.key] = d;
+            });
+
+            // Broadcaster we were following has gone offline
+            if (syncState === 'following' && followingName && !lastAvailable[followingName]) {
+                setSyncState('idle');
+                showToast('⚠️ Broadcaster disconnected.');
+            }
+
+            renderBroadcastsList();
+        });
+    }
+
+    // Central state-machine transition for sync: idle <-> broadcasting <-> following.
+    // Always tears down whatever the previous state was set up (Firebase refs,
+    // heartbeat timer, listeners) before configuring the new state.
+    function setSyncState(newState, name) {
+        // ── Tear down current state ──
+        if (myBroadcastRef) { myBroadcastRef.remove(); myBroadcastRef = null; }
+        clearInterval(heartbeatTimer); heartbeatTimer = null;
+        if (followRef) { followRef.off(); followRef = null; }
+
+        syncState     = newState;
+        followingName = null;
+
+        const toggleEl   = document.getElementById('broadcast-toggle');
+        const toggleWrap = document.getElementById('broadcast-toggle-wrap');
+        const nameRow    = document.getElementById('broadcast-name-row');
+
+        // ── Set up new state ──
+        if (newState === 'broadcasting') {
+            myName         = name;
+            myBroadcastRef = db.ref('broadcasts/' + name);
+            myBroadcastRef.set({ index: currentIndex, lastSeen: Date.now() });
+            myBroadcastRef.onDisconnect().remove();  // auto-clean on tab close
+            heartbeatTimer = setInterval(() => {
+                if (myBroadcastRef) myBroadcastRef.update({ lastSeen: Date.now() });
+            }, 15000);
+            toggleEl.checked = true;
+            nameRow.style.display = 'block';
+            toggleWrap.classList.remove('disabled');
+        }
+
+        if (newState === 'following') {
+            followingName  = name;
+            followRef      = db.ref('broadcasts/' + name + '/index');
+            followRef.on('value', snap => {
+                const idx = snap.val();
+                if (idx !== null && idx !== undefined) advanceLine(idx, true);
+            });
+            toggleEl.checked = false;
+            nameRow.style.display = 'none';
+            toggleWrap.classList.add('disabled');   // can't broadcast and follow simultaneously
+        }
+
+        if (newState === 'idle') {
+            toggleEl.checked = false;
+            nameRow.style.display = 'none';
+            toggleWrap.classList.remove('disabled');
+        }
+
+        updateSyncUI();
+        renderBroadcastsList();
+    }
+
+
+    // ── SYNC EVENT HANDLERS ──────────────────────────────
+    function onBroadcastToggle() {
+        if (!firebaseReady) {
+            document.getElementById('broadcast-toggle').checked = false;
+            showToast('⚠️ Firebase not configured yet.');
+            return;
+        }
+        const on = document.getElementById('broadcast-toggle').checked;
+        if (on) {
+            const name = document.getElementById('broadcast-name-input').value.trim() || myName;
+            document.getElementById('broadcast-name-input').value = name;
+            setSyncState('broadcasting', name);
+        } else {
+            setSyncState('idle');
+        }
+    }
+
+    function onNameChange() {
+        if (syncState !== 'broadcasting') return;
+        const newName = document.getElementById('broadcast-name-input').value.trim();
+        if (newName && newName !== myName) setSyncState('broadcasting', newName);
+    }
+
+    function onBroadcastItemClick(name) {
+        if (!firebaseReady) return;
+        if (syncState === 'following' && followingName === name) {
+            setSyncState('idle');
+            showToast('Stopped following ' + name + '.');
+        } else {
+            setSyncState('following', name);
+            showToast('Now following ' + name + '.');
+        }
+    }
+
+
+    // ── SYNC UI ──────────────────────────────────────────
+    function updateSyncUI() {
+        const btn = document.getElementById('sync-btn');
+        const dot = document.getElementById('sync-btn-bottom');
+        const ind = document.getElementById('sync-status-indicator');
+        const txt = document.getElementById('sync-status-text');
+
+        btn.className = syncState;
+
+        if (syncState === 'idle') {
+            dot.textContent      = '🔴';
+            ind.style.background = '#cc2222';
+            txt.textContent      = 'Idle';
+        } else if (syncState === 'broadcasting') {
+            dot.textContent      = '🔵';
+            ind.style.background = '#1e88e5';
+            txt.textContent      = myName;
+        } else if (syncState === 'following') {
+            dot.textContent      = '🟢';
+            ind.style.background = '#43a047';
+            txt.textContent      = followingName;
+        }
+
+        // Mirror the same status dot onto the collapsed group-toggle icon,
+        // so the sync state stays glanceable even with the buttons hidden.
+        if (btnGroupCollapsed) {
+            document.getElementById('btn-group-toggle-bottom').textContent = dot.textContent;
+        }
+    }
+
+    function renderBroadcastsList() {
+        const list  = document.getElementById('broadcasts-list');
+        const names = Object.keys(lastAvailable);
+        if (names.length === 0) {
+            list.innerHTML = '<div id="no-broadcasts-msg">No active broadcasts found.</div>';
+            return;
+        }
+        list.innerHTML = names.map(n => {
+            const safe     = n.replace(/'/g, "\\'");
+            const selected = (syncState === 'following' && followingName === n) ? 'selected' : '';
+            return `<div class="broadcast-item ${selected}" onclick="onBroadcastItemClick('${safe}')">
+                        <span>${n}</span>
+                        <div class="broadcast-dot"></div>
+                    </div>`;
+        }).join('');
+    }
+
+    function toggleSyncPanel() {
+        syncPanelOpen = !syncPanelOpen;
+        document.getElementById('sync-panel').style.display = syncPanelOpen ? 'flex' : 'none';
+        if (syncPanelOpen) {
+            // Only one panel visible at a time — close Export / Hide-confirm if open.
+            if (exportPanelOpen) {
+                exportPanelOpen = false;
+                document.getElementById('export-panel').style.display = 'none';
+            }
+            if (hideConfirmPending) {
+                hideConfirmPending = false;
+                document.getElementById('hide-bar-confirm').style.display = 'none';
+            }
+        }
+    }
+
+    function showToast(msg) {
+        const t = document.getElementById('sync-toast');
+        t.textContent = msg;
+        t.classList.add('show');
+        clearTimeout(toastTimer);
+        toastTimer = setTimeout(() => t.classList.remove('show'), 3000);
+    }
+
+
+    // ── SCRIPT PARSING ───────────────────────────────────
+
+    // Manual upload path: user selects a .md/.txt file via the file input.
+    document.getElementById('fileInput').addEventListener('change', e => {
+        if (!e.target.files[0]) return;
+        const reader = new FileReader();
+        reader.onload = ev => {
+            parseScript(ev.target.result);
+            document.getElementById('upload-container').style.display = 'none';
+        };
+        reader.readAsText(e.target.files[0]);
+    });
+
+    // Parses raw dialogue text into an array of {text, italic} segments.
+    // Single *asterisks* or triple ***asterisks*** both mark an italic
+    // (black, not grey — grey italics are reserved for action/scene lines)
+    // run of text. The closing marker is allowed to have MORE asterisks than
+    // the opening one (absorbs stray noise from "**NAME *(dir)***"-style
+    // nesting, where the name's closing "**" fuses with the italic's closer);
+    // any absorbed excess is simply discarded rather than shown literally.
+    // Unmatched/trailing single asterisks with no partner are left as literal text.
+    function parseItalicSegments(text) {
+        const segments = [];
+        const re = /(\*{1,3})([^*]+?)\*{1,3}/g;
+        let lastIndex = 0;
+        let m;
+        while ((m = re.exec(text)) !== null) {
+            if (m.index > lastIndex) segments.push({ text: text.slice(lastIndex, m.index), italic: false });
+            segments.push({ text: m[2], italic: true });
+            lastIndex = re.lastIndex;
+        }
+        if (lastIndex < text.length) segments.push({ text: text.slice(lastIndex), italic: false });
+        if (segments.length === 0) segments.push({ text: '', italic: false });
+        return segments;
+    }
+
+    // Escapes HTML special characters so segment text can be safely inserted
+    // via innerHTML without accidentally being interpreted as markup.
+    function escapeHTML(str) {
+        return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
+    // Renders dialogue text (with *italic* segments) as an HTML string for
+    // the live webpage.
+    function dialogueToHTML(text) {
+        return parseItalicSegments(text).map(seg =>
+            seg.italic ? `<i>${escapeHTML(seg.text)}</i>` : escapeHTML(seg.text)
+        ).join('');
+    }
+
+    // Tries to parse a raw (pre-cleanup) line as a PIN line.
+    // Returns an array of actor names if valid, or null if not a PIN line at all.
+
+    function tryParsePinLine(rawLine) {
+        const cl = rawLine.trim();
+        if (!cl) return null; // blank lines are handled separately by the caller
+        const upper = cl.toUpperCase();
+        const markerUpper = PIN_MARKER.toUpperCase();
+        if (!upper.endsWith(markerUpper)) return null;
+        const namesPart = cl.slice(0, cl.length - PIN_MARKER.length).trim();
+        if (!namesPart) return null;
+        // Must look like "NAME" or "NAME & NAME2 & ..." — nothing else.
+        if (!/^[^\s:&]+(\s*&\s*[^\s:&]+)*$/.test(namesPart)) return null;
+        return namesPart.split('&').map(a => a.trim());
+    }
+
+    function parseScript(text) {
+        scriptLines = []; charColors = {}; characters = [];
+        const rawLines = text.split('\n');
+        const pinnedOrder = [];
+        const pinnedSet = new Set();
+        let i = 0;
+
+        // ── PIN block: consume from the very top of the file. Blank lines are
+        // skipped silently; the first non-blank line that isn't a valid PIN
+        // line ends PIN mode permanently, and is then parsed normally below.
+        for (; i < rawLines.length; i++) {
+            const rawLine = rawLines[i];
+            if (!rawLine.trim()) continue; // blank — skip, stay in PIN mode
+            const actors = tryParsePinLine(rawLine);
+            if (actors === null) break; // first non-PIN content ends PIN mode
+            actors.forEach(a => {
+                if (!pinnedSet.has(a)) {
+                    pinnedSet.add(a);
+                    pinnedOrder.push(a);
+                }
+            });
+            // consumed as a PIN line — advance past it, stay in PIN mode
+        }
+
+        // Register pinned characters first, in written order, so they get
+        // earlier colors and lead the countdown dashboard.
+        pinnedOrder.forEach(a => {
+            if (!charColors[a]) charColors[a] = colorPalette[Object.keys(charColors).length % colorPalette.length];
+            if (!characters.includes(a)) characters.push(a);
+        });
+
+        // ── Normal parsing resumes from line i (the first non-PIN line).
+        for (; i < rawLines.length; i++) {
+            let cl = rawLines[i]
+                .replace(/\\!/g,  '!')
+                .replace(/\\\[/g, '[')
+                .replace(/\\\]/g, ']')
+                .replace(/^#+\s*/, '')
+                .trim();
+            if (!cl) continue;
+
+            // PAGEBREAK_MARKER — forgiving match: case-insensitive, allows trailing
+            // junk/typos after the marker. Invisible on the live page; forces
+            // a hard page break in the PDF export.
+            if (cl.toUpperCase().startsWith(PAGEBREAK_MARKER.toUpperCase())) {
+                scriptLines.push({ type: 'pagebreak' });
+                continue;
+            }
+
+            // A PIN-marker line found OUTSIDE the top-of-file PIN block is not
+            // valid syntax here — completely ignored (not shown, not parsed
+            // as dialogue), since pinning only applies at the very top.
+            if (tryParsePinLine(cl) !== null) continue;
+
+            // LOG_MARKER — strip the tag (invisible on the live page, same as
+            // PIN/PAGEBREAK) and remember it, then let the REST of the line
+            // parse completely normally below as dialogue/action/heading.
+            // The stored log text is that same post-strip content, so a log
+            // entry for a dialogue line matches what's shown on the page.
+            let isLog = false;
+            if (cl.toUpperCase().startsWith(LOG_MARKER.toUpperCase())) {
+                isLog = true;
+                cl = cl.slice(LOG_MARKER.length).trim()
+                    .replace(/^#+\s*/, ''); // re-apply the line-start "#" heading-strip rule,
+                    // since it ran against the raw line BEFORE <LOG> was peeled off and
+                    // therefore never saw a "#" that comes right after the <LOG> tag
+                if (!cl) continue; // a bare "<LOG>" with nothing after it — nothing to parse or log
+            }
+
+            // Bracket/paren/cue-number/pipe checks below need to see past any
+            // leading Markdown bold marker (e.g. "**[SCENE...]**" or "**[101] NAME**")
+            // without actually stripping asterisks from the working copy yet,
+            // since dialogue text still needs them for italics parsing.
+            const leadingStripped = cl.replace(/^\*+/, '');
+
+            const mm = leadingStripped.match(/^\[\d{3}\]\s*(.*)/);
+            if (mm) cl = (cl.match(/^\*+/) || [''])[0] + mm[1]; // keep any leading ** wrapper, drop the [###] cue number
+
+            const checkPrefix = cl.replace(/^\*+/, '');
+            if (checkPrefix.startsWith('[') || checkPrefix.startsWith('(') || checkPrefix.startsWith('|')) {
+                const actionText = cl.replace(/\*/g, '');
+                scriptLines.push({ type: 'action', text: actionText, isLog, logText: isLog ? actionText : undefined });
+            } else {
+                // Actor name(s) are always plain (asterisks stripped, matching
+                // the existing convention of bolding names in Markdown); dialogue
+                // text keeps its asterisks so *italic* segments can be parsed.
+                const nameStripped = cl.replace(/\*/g, '');
+                const m = nameStripped.match(/^([^\s:&]+(?:\s*&\s*[^\s:&]+)*)(?:[:\s]+(.*)|\s*)$/);
+                if (m) {
+                    const actors = m[1].split('&').map(a => a.trim());
+                    actors.forEach(a => {
+                        if (!charColors[a]) charColors[a] = colorPalette[Object.keys(charColors).length % colorPalette.length];
+                        if (!characters.includes(a)) characters.push(a);
+                    });
+                    const dialoguePortion = extractDialogueRaw(cl, actors);
+                    // Log text mirrors what's rendered: "ACTOR & ACTOR dialogue", asterisks stripped for readability in the plain-text log.
+                    const logText = isLog ? `${actors.join(' & ')} ${dialoguePortion.replace(/\*/g, '')}`.trim() : undefined;
+                    scriptLines.push({ type: 'dialogue', actors, dialogue: dialoguePortion, isLog, logText });
+                } else {
+                    const actionText = cl.replace(/\*/g, '');
+                    scriptLines.push({ type: 'action', text: actionText, isLog, logText: isLog ? actionText : undefined });
+                }
+            }
+        }
+        renderScript(); initDashboard(); advanceLine(0);
+    }
+
+    // Given the ORIGINAL (unstripped) line and the already-identified actor
+    // name(s), re-locates the actor-name boundary in the original text (which
+    // may have ** bold ** wrapping around it) and returns everything after it
+    // with asterisks left intact, so *italic* segments in the dialogue survive.
+    function extractDialogueRaw(rawLine, actors) {
+        const escapeRe = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const actorPattern = actors
+            .map(a => a.split('').map(escapeRe).join('\\*{0,3}'))
+            .join('\\*{0,3}\\s*&\\s*\\*{0,3}');
+        const origRe = new RegExp('^\\*{0,3}' + actorPattern + '\\*{0,3}');
+        const origMatch = rawLine.match(origRe);
+        let dialogueRaw = origMatch ? rawLine.slice(origMatch[0].length) : '';
+        return dialogueRaw.replace(/^[:\s]+/, '');
+    }
+
+    // Rebuilds #script-container from scriptLines. Pagebreak entries are
+    // export-only and produce no visible row. Double-click on a row jumps
+    // straight to that line (bypassing the click-to-advance-by-one flow).
+    function renderScript() {
+        const c = document.getElementById('script-container');
+        c.innerHTML = '';
+        scriptLines.forEach((line, i) => {
+            if (line.type === 'pagebreak') return; // invisible on the live page
+            const row = document.createElement('div');
+            row.id = 'line-' + i;
+            row.addEventListener('dblclick', () => advanceLine(i));
+            if (line.type === 'action') {
+                row.className = 'action-row';
+                row.innerHTML = `<div>${line.text}</div>`;
+            } else {
+                // My Lines: dim this row iff it's off (empty selection) is
+                // false AND none of its actors are in the selection. A line
+                // stays full-brightness if ANY of its actors are selected
+                // (relevant for "A & B" two-hander lines).
+                const isDimmed = myLinesSelection.size > 0 &&
+                    !line.actors.some(a => myLinesSelection.has(a));
+                row.className = 'line-row' + (isDimmed ? ' dimmed' : '');
+                row.innerHTML = `<div class="actor-tag" style="background:${tagBackgroundCSS(line.actors)}">${line.actors.join(' & ')}</div><div class="dialogue">${dialogueToHTML(line.dialogue)}</div>`;
+            }
+            c.appendChild(row);
+        });
+        // Small credit line at the end of the script, scrolls with content.
+        const credit = document.createElement('div');
+        credit.id = 'github-credit';
+        credit.innerHTML = `<a href="https://github.com/leonampa/liverundown" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()">
+            <svg viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38
+            0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01
+            1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15
+            -.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82
+            2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48
+            0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
+            LiveRundown by @leonampa
+        </a>`;
+        c.appendChild(credit);
+    }
+
+    // Builds one dashboard block per character, in registration order
+    // (pinned characters first, then order of first appearance) — UNLESS
+    // one or more actors are selected via My Lines, in which case selected
+    // actors are moved to the front (still in their relative registration
+    // order among themselves), overriding pin order for display purposes.
+    // Non-selected blocks dim to 70%. Called on script load AND every time
+    // the My Lines selection changes (see toggleMyLinesActor()).
+    function initDashboard() {
+        const d = document.getElementById('dashboard');
+        d.innerHTML = '';
+        const selected = characters.filter(c => myLinesSelection.has(c));
+        const rest     = characters.filter(c => !myLinesSelection.has(c));
+        const displayOrder = myLinesSelection.size > 0 ? [...selected, ...rest] : characters;
+        displayOrder.forEach(char => {
+            const isDimmed = myLinesSelection.size > 0 && !myLinesSelection.has(char);
+            d.innerHTML += `<div class="dash-block${isDimmed ? ' dimmed' : ''}" id="dash-${char}"><div class="dash-name" style="background-color:${charColors[char]}">${char}</div><div class="dash-count" id="count-${char}">--</div></div>`;
+        });
+        initMyLinesGestures();
+    }
+
+    // Toggles one actor in/out of the My Lines selection and re-renders
+    // everything that depends on it (dashboard order/dimming, script row
+    // dimming). Called after a successful 3s long-press — see
+    // initMyLinesGestures(). Selecting the last remaining actor back out
+    // cleanly restores normal view (myLinesSelection.size becomes 0, and
+    // every dimmed/reordered branch above naturally falls back to default).
+    function toggleMyLinesActor(char) {
+        if (myLinesSelection.has(char)) myLinesSelection.delete(char);
+        else myLinesSelection.add(char);
+        initDashboard();
+        updateDashboard(); // repaint counts, wiped by initDashboard()'s innerHTML rebuild
+        renderScript();
+        // renderScript() rebuilds #script-container from scratch, which drops
+        // the .active highlight on the current line — restore it without
+        // re-scrolling the page (the stage manager didn't ask to jump anywhere,
+        // they just toggled a My Lines filter).
+        if (currentIndex >= 0) {
+            const el = document.getElementById('line-' + currentIndex);
+            if (el) el.classList.add('active');
+        }
+    }
+
+    // Wires up press-and-hold (mouse + touch) on every dash-block to toggle
+    // that actor into/out of My Lines after a 3-second hold. Re-run every
+    // time initDashboard() rebuilds the blocks (innerHTML wipe kills old
+    // listeners, so this must be re-attached each time — it's cheap, there
+    // are only ever a handful of characters).
+    //
+    // A held block spawns a new .press-wave ripple roughly every 500ms as
+    // pure ambient "you're holding this" feedback (see CSS) — no progress
+    // indication, the toggle just happens abruptly at 3s. Releasing early
+    // clears the timers so the toggle never fires; any ripples already
+    // spawned are left alone and simply finish their own fade-out
+    // (animation: ... forwards + self-removal), which reads as a natural
+    // decay rather than an abrupt cut.
+    //
+    // A plain tap/click (no hold) does nothing at all, by design — there's
+    // no click handler here, only press/hold/release ones.
+    function initMyLinesGestures() {
+        const HOLD_MS = 3000, WAVE_INTERVAL_MS = 500;
+        characters.forEach(char => {
+            const block = document.getElementById('dash-' + char);
+            if (!block) return;
+
+            let holdTimeout = null, waveInterval = null;
+
+            const spawnWave = () => {
+                const wave = document.createElement('div');
+                wave.className = 'press-wave';
+                block.appendChild(wave);
+                wave.addEventListener('animationend', () => wave.remove());
+            };
+
+            const startHold = (e) => {
+                e.preventDefault(); // avoid text-selection / touch scrolling during the hold
+                spawnWave();
+                waveInterval = setInterval(spawnWave, WAVE_INTERVAL_MS);
+                holdTimeout = setTimeout(() => {
+                    clearInterval(waveInterval);
+                    waveInterval = null;
+                    toggleMyLinesActor(char);
+                }, HOLD_MS);
+            };
+
+            const cancelHold = () => {
+                clearTimeout(holdTimeout);
+                clearInterval(waveInterval);
+                holdTimeout = null;
+                waveInterval = null;
+            };
+
+            block.addEventListener('mousedown', startHold);
+            block.addEventListener('mouseup', cancelHold);
+            block.addEventListener('mouseleave', cancelHold);
+            block.addEventListener('touchstart', startHold, { passive: false });
+            block.addEventListener('touchend', cancelHold);
+            block.addEventListener('touchcancel', cancelHold);
+        });
+    }
+
+    // For each character, finds their next dialogue line from currentIndex
+    // onward and shows the line-count until it (00-09 zero-padded), or
+    // marks them active if it's their line right now. Shows '--' if they
+    // have no more lines.
+    //
+    // Also applies the countdown proximity visual warnings, gated by
+    // SHOW_COUNTDOWN_WARNINGS: within WARNING_THRESHOLD lines → "approaching"
+    // (grey-on-black); 0 or 1 lines away → "imminent" (solid or flashing
+    // white-on-red, per FLASHING_EFFECTS).
+    function updateDashboard() {
+        characters.forEach(char => {
+            let distance = '--', isActive = false, rawDistance = null;
+            for (let i = currentIndex; i < scriptLines.length; i++) {
+                if (scriptLines[i].type === 'dialogue' && scriptLines[i].actors.includes(char)) {
+                    rawDistance = i - currentIndex;
+                    if (rawDistance === 0) isActive = true;
+                    distance = rawDistance < 10 ? '0' + rawDistance : String(rawDistance);
+                    break;
+                }
+            }
+            document.getElementById('count-' + char).innerText = distance;
+            document.getElementById('dash-' + char).classList.toggle('active', isActive);
+
+            const countEl = document.getElementById('count-' + char);
+            countEl.classList.remove('approaching', 'imminent', 'flashing');
+            if (SHOW_COUNTDOWN_WARNINGS && rawDistance !== null) {
+                if (rawDistance <= 1) {
+                    countEl.classList.add('imminent');
+                    if (FLASHING_EFFECTS) countEl.classList.add('flashing');
+                } else if (rawDistance <= WARNING_THRESHOLD) {
+                    countEl.classList.add('approaching');
+                }
+            }
+        });
+    }
+
+    // Moves the "live" line to targetIndex. fromSync=true means this call
+    // came from a Firebase follow update rather than local input — it
+    // bypasses the "locked while following" guard and avoids re-broadcasting
+    // the index right back to Firebase.
+    function advanceLine(targetIndex, fromSync = false) {
+        // Pagebreaks are invisible on the live page — skip past them in the
+        // direction of travel so they never consume a click/key press or
+        // become a stuck target index.
+        const direction = targetIndex >= currentIndex ? 1 : -1;
+        while (targetIndex >= 0 && targetIndex < scriptLines.length && scriptLines[targetIndex].type === 'pagebreak') {
+            targetIndex += direction;
+        }
+        if (targetIndex < 0 || targetIndex >= scriptLines.length) return;
+        if (!fromSync && syncState === 'following') return; // locked while following
+
+        // <LOG> logging — forward advances only, and only while the timer is
+        // running (paused = no logging at all). Applies to fromSync advances
+        // too: each device logs independently off its own local timer, so a
+        // follower's log reflects its own timestamps, not the broadcaster's.
+        // Scans every line strictly after the OLD currentIndex through the
+        // new targetIndex inclusive, so a multi-line jump (e.g. double-click
+        // past several lines) still logs every <LOG> line it passed through,
+        // all stamped with the current (same) timestamp.
+        if (direction === 1 && timerRunning && currentIndex >= 0) {
+            for (let i = currentIndex + 1; i <= targetIndex; i++) {
+                const l = scriptLines[i];
+                if (l && l.isLog) addLogEntry(l.logText);
+            }
+        }
+
+        if (currentIndex >= 0) {
+            const prev = document.getElementById('line-' + currentIndex);
+            if (prev) prev.classList.remove('active');
+        }
+        currentIndex = targetIndex;
+        const el = document.getElementById('line-' + currentIndex);
+        if (el) {
+            el.classList.add('active');
+            el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            updateDashboard();
+        }
+        // Push to Firebase when broadcasting (but not when receiving a sync)
+        if (!fromSync && syncState === 'broadcasting' && myBroadcastRef) {
+            myBroadcastRef.update({ index: currentIndex, lastSeen: Date.now() });
+        }
+    }
+
+
+    // ── INPUT HANDLERS ───────────────────────────────────
+    // Whole-page click advances one line, unless the click landed on a
+    // control/panel (those are excluded below) or an open panel/popup needs
+    // closing first (in which case the click just closes it, without advancing).
+    document.body.addEventListener('click', e => {
+        if (e.target.closest('#upload-container')) return;
+        if (e.target.closest('#sync-btn') || e.target.closest('#sync-panel')) return;
+        if (e.target.closest('#export-btn') || e.target.closest('#export-panel')) return;
+        if (e.target.closest('#timer-btn') || e.target.closest('#timer-panel') || e.target.closest('#timer-reset-confirm')) return;
+        if (e.target.closest('#hide-bar-btn') || e.target.closest('#hide-bar-confirm')) return;
+        if (e.target.closest('#reveal-btn')) return;
+        if (e.target.closest('#btn-group-toggle')) return;
+        // Click outside an open panel → close it (don't advance)
+        if (syncPanelOpen) {
+            syncPanelOpen = false;
+            document.getElementById('sync-panel').style.display = 'none';
+            return;
+        }
+        if (exportPanelOpen) {
+            exportPanelOpen = false;
+            document.getElementById('export-panel').style.display = 'none';
+            return;
+        }
+        if (timerPanelOpen) {
+            timerPanelOpen = false;
+            document.getElementById('timer-panel').style.display = 'none';
+            if (timerResetPending) {
+                timerResetPending = false;
+                document.getElementById('timer-reset-confirm').style.display = 'none';
+            }
+            return;
+        }
+        if (hideConfirmPending) {
+            hideConfirmPending = false;
+            document.getElementById('hide-bar-confirm').style.display = 'none';
+            return;
+        }
+        if (clickTimer) { clearTimeout(clickTimer); clickTimer = null; }
+        else { clickTimer = setTimeout(() => { advanceLine(currentIndex + 1); clickTimer = null; }, 250); }
+    });
+
+    // Keyboard/foot-pedal input: Arrow Down or F13 (HID foot pedal "next" button)
+    // advances one line; Arrow Up goes back one line.
+    window.addEventListener('keydown', e => {
+        if (e.key === 'ArrowDown' || e.key === 'F13') { e.preventDefault(); advanceLine(currentIndex + 1); }
+        if (e.key === 'ArrowUp')  { e.preventDefault(); if (currentIndex > 0) advanceLine(currentIndex - 1); }
+    });
+</script>
+</body>
+</html>
