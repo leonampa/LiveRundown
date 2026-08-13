@@ -1,10 +1,11 @@
+ELARA & JAX & KAI & MIRA & SILAS & VANE <PIN>
 # [Act 1]
 
 **[SCENE: An abandoned subway station. Dim emergency lights flicker. The air is thick with dust and the distant, rhythmic hum of a tunnel fan.]**
 
 **[CHARACTERS: ELARA, KAI, JAX, MIRA, SILAS, VANE]**
 
-**[101] ELARA** I told you the signal wouldn’t hold this deep underground.
+<LOG>**[101] ELARA** I told you the signal wouldn’t hold this deep underground.
 
 **KAI *(checking a tablet with a cracked screen)*** It held long enough to get us coordinates.
 
@@ -60,7 +61,7 @@
 
 **MIRA** Two.
 
-**SILAS & VANE *(bracing against the frame)*** Three!
+<LOG>**SILAS & VANE *(bracing against the frame)*** Three!
 
 **ELARA** It’s stuck—wait, it’s turning.
 
@@ -172,7 +173,7 @@
 
 **VANE** What now?
 
-**JAX & MIRA *(looking at the horizon)*** We start over.
+<LOG>**JAX & MIRA *(looking at the horizon)*** We start over.
 
 **ELARA** We start over.
 
@@ -182,4 +183,4 @@
 
 **JAX & MIRA *(looking at the sunrise)*** Everything changes now.
 
-**ELARA & KAI *(whispering)*** Everything.
+<LOG>**ELARA & KAI *(whispering)*** Everything.
