@@ -20,6 +20,7 @@ This is the detailed reference for LiveRundown: every feature, every control, an
 
 If a follower's connection drops mid-show, their view simply stays put — it doesn't know the broadcaster has kept advancing. Once reconnected, it jumps straight to the broadcaster's current index.
 
+* **Auto-pair** On page load, LiveRundown briefly checks for a single active broadcaster and — if it finds exactly one — follows it automatically, with a toast confirming who you were paired to. It detects a broadcaster with one of two ways: instantly if another LiveRundown tab/window is open in the *same browser*, or via the same *public network* (matched by public IP) if it's a different browser or a different device. If it finds no broadcaster, or more than one, it does nothing — same as opening the app normally  Controlled by `AUTO_PAIR` in index.html (see [Edit index.html](#edit-indexhtml))
 
 ## Countdown dashboard
 
@@ -89,8 +90,9 @@ Use `*italics*` or `***italics***` within dialogue for emphasis (rendered as ita
 
 ## Edit index.html
 
-To set up and customize your edition of LiveRundown, edit [index.html](index.html) between lines 897 and 925 (or search for '✏️' with Ctrl+F). From there, you can edit:
+To set up and customize your edition of LiveRundown, edit [index.html](index.html) between lines 890 and 924 (or search for '✏️' with Ctrl+F). From there, you can edit:
 * **`FIREBASE_CONFIG`** - Your Firebase credentials, in order to use Sync
 * **Markdown syntax markers** - What markers the app uses, to trigger hidden actions (see [Script Markers](#script-markers))
 * **`colorPalette`** - The list of colors used for each actor, in order (first pinned actors, then by first appearance)
-* **Countdown dashboard proximity warnings** - Toggle if countdown warnings are displayed (`SHOW_COUNTDOWN_WARNINGS`), if flashing effects are allowed (FLASHING_EFFECTS), and how many lines are remaining to trigger the "approaching" state (WARNING_THRESHOLD). (see [Countdown Dashboard](#countdown-dashboard))
+* **Countdown dashboard proximity warnings** - Toggle if countdown warnings are displayed (`SHOW_COUNTDOWN_WARNINGS`), if flashing effects are allowed (`FLASHING_EFFECTS`), and how many lines are remaining to trigger the "approaching" state (`WARNING_THRESHOLD`). (see [Countdown Dashboard](#countdown-dashboard))
+* **`AUTO_PAIR`** - Toggle automatic pairing to a lone live broadcaster on launch. (see [Sync → Auto-pair](#sync))

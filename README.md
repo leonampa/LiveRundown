@@ -52,7 +52,7 @@ LiveRundown digitizes markdown scripts and processes them into a high-visibility
 }
 ~~~
 > ⚠️ These open rules are designed for low-friction setup within trusted, private cast networks. Adjust Firebase Auth/Rules if deploying publicly.
-* Download [index.html](index.html) from this repo, open it, and edit the Firebase config (between lines 897 and 925 / search for the ✏️ marker near the top of the file)
+* Download [index.html](index.html) from this repo, open it, and edit the Firebase config (between lines 890 and 924 / search for the ✏️ marker near the top of the file)
 * Place index.html and your script.md on a folder, and upload the folder as-is on Netlify
 * Visit the given URL on two tabs/windows/devices, and check to see if it works like it should
 
@@ -66,3 +66,8 @@ The engineering philosophy behind LiveRundown prioritizes ultra-low friction dep
 * **Database & Synchronization:** Firebase Realtime Database
 * **PDF Generation:** [pdfmake](https://github.com/bpampuch/pdfmake) (loaded via CDN, no build step)
 * **Deployment Infrastructure:** Netlify
+
+## Credits
+
+Concept, architecture, and product definition by [@leonampa](https://github.com/leonampa).
+Assisted by Anthropic's Claude Sonnet (full code development and feature implementation, debugging, and ongoing development) and Google's Gemini 3.1 (prototyping, GUI mockups, brainstorming, research).

@@ -1,4 +1,4 @@
-<!-- ✏️ EDIT VARIABLES (Firebase config, color tags, etc) between lines 897 and 925 - or search for '✏️' with Ctrl+F -->
+<!-- ✏️ EDIT VARIABLES (Firebase config, color tags, etc) between lines 890 and 924 - or search for '✏️' with Ctrl+F -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -917,6 +917,12 @@
     const WARNING_THRESHOLD       = 5;    // lines-remaining cutoff for entering the "approaching" (black-on-white) state.
     const FLASHING_EFFECTS        = true; // if true, a countdown of 0 or 1 flashes white-on-red/white-on-grey; if false, it's solid white-on-red (accessibility option).
 
+    // ✏️ Auto-pair: on page load, silently look for a live broadcast (same browser via 
+    // BroadcastChannel, or same network via matching public IP through Firebase) and 
+    // automatically sync to it. If there's more than a single broadcaster, it will not auto-pair.
+    // Safe to leave off (false) if you don't want this behavior.
+    const AUTO_PAIR = true;
+
     // Parsed script state — populated by parseScript().
     let charColors = {}, characters = [], scriptLines = [];
 
@@ -958,6 +964,12 @@
     let exportPanelOpen   = false;
     let lastAvailable     = {};
     let toastTimer        = null;
+    let pairChannel       = null;   // BroadcastChannel — same-browser instant pairing
+    let myPublicIP        = null;  // fetched once, only if/when we start broadcasting
+    let autoPairDone      = false; // guards against autopair firing more than once
+    let pendingIPAutoPair = false; // Tier 1 found nobody, waiting on first snapshot for Tier 2
+    let broadcastsSnapshotReceived = false;// true once listenToBroadcasts() has real data
+
 
     // Bottom-bar visibility state (Hide Bar feature).
     let barHidden           = false;
@@ -1493,6 +1505,11 @@
         }
     }
 
+    // AUTO_PAIR: strictly a launch-time check (per design — no periodic re-checks).
+    // Safe to call even if Firebase isn't configured: Tier 1 (BroadcastChannel) is
+    // fully independent of Firebase, so same-browser autopair still works standalone.
+    tryAutoPair();
+
     // Pre-fill the name field with the randomly generated default name
     document.getElementById('broadcast-name-input').value = myName;
     document.getElementById('broadcast-name-input').addEventListener('change', onNameChange);
@@ -1552,7 +1569,94 @@
             }
 
             renderBroadcastsList();
+
+            // First snapshot after subscribing means lastAvailable now reflects real
+            // data — safe for AUTO_PAIR's Tier 2 (IP match) to read it. Only relevant
+            // if Tier 1 (BroadcastChannel) already ran and found nobody same-browser.
+            if (!broadcastsSnapshotReceived) {
+                broadcastsSnapshotReceived = true;
+                if (pendingIPAutoPair) { pendingIPAutoPair = false; tryAutoPairViaIP(); }
+            }
         });
+    }
+
+    // ── AUTO_PAIR: Tier 1 (BroadcastChannel, same browser) ──
+    // Broadcaster side: announce our name on a shared channel every few seconds.
+    // Same-browser tabs/windows (including most incognito contexts) hear this
+    // instantly with zero Firebase traffic — this is the cheap, fast path.
+    function startPairBroadcastChannel(name) {
+        stopPairBroadcastChannel();
+        if (typeof BroadcastChannel === 'undefined') return; // unsupported browser — Tier 2 still covers it
+        pairChannel = new BroadcastChannel('liverundown-pair');
+        pairChannel.postMessage({ type: 'heartbeat', name });
+        const beacon = setInterval(() => {
+            if (pairChannel) pairChannel.postMessage({ type: 'heartbeat', name });
+        }, 3000);
+        pairChannel._beacon = beacon;
+    }
+
+    function stopPairBroadcastChannel() {
+        if (pairChannel) {
+            clearInterval(pairChannel._beacon);
+            pairChannel.close();
+            pairChannel = null;
+        }
+    }
+
+    // ── AUTO_PAIR: launch-time check ─────────────────────
+    // Runs once, on page load, only while idle. Tries Tier 1 first (instant,
+    // same-browser); if nothing heard within a short window, falls back to
+    // Tier 2 (Firebase, matched by public IP — covers same-network/same-device
+    // across different browsers). Exactly one live candidate = auto-follow +
+    // toast. Zero or 2+ candidates = silent no-op, by design.
+    function tryAutoPair() {
+        if (!AUTO_PAIR || autoPairDone || syncState !== 'idle') return;
+        autoPairDone = true;
+
+        if (typeof BroadcastChannel === 'undefined') {
+            if (broadcastsSnapshotReceived) tryAutoPairViaIP(); else pendingIPAutoPair = true;
+            return;
+        }
+
+        const listenChannel = new BroadcastChannel('liverundown-pair');
+        let paired = false;
+        const timeout = setTimeout(() => {
+            listenChannel.close();
+            if (paired) return;
+            if (broadcastsSnapshotReceived) tryAutoPairViaIP(); else pendingIPAutoPair = true;
+        }, 1000);
+
+        listenChannel.onmessage = e => {
+            if (paired || !e.data || e.data.type !== 'heartbeat') return;
+            paired = true;
+            clearTimeout(timeout);
+            listenChannel.close();
+            if (syncState === 'idle') {
+                setSyncState('following', e.data.name);
+                showToast('🔗 Auto-paired to ' + e.data.name + '.');
+            }
+        };
+    }
+
+    // Tier 2: match against live (non-stale) broadcasts sharing our public IP.
+    function tryAutoPairViaIP() {
+        if (syncState !== 'idle' || !firebaseReady) return;
+        fetch('https://api.ipify.org?format=json')
+            .then(r => r.json())
+            .then(d => {
+                if (syncState !== 'idle') return; // state may have changed while awaiting
+                const myIP = d.ip;
+                // lastAvailable is already staleness-filtered (<30s) by listenToBroadcasts()
+                const candidates = Object.entries(lastAvailable)
+                    .filter(([, b]) => b.publicIP && b.publicIP === myIP);
+                if (candidates.length !== 1) return; // 0 or 2+ matches → do nothing
+                const [name] = candidates[0];
+                if (syncState === 'idle') {
+                    setSyncState('following', name);
+                    showToast('🔗 Auto-paired to ' + name + '.');
+                }
+            })
+            .catch(() => { /* no IP available — silently skip autopair */ });
     }
 
     // Central state-machine transition for sync: idle <-> broadcasting <-> following.
@@ -1583,6 +1687,21 @@
             toggleEl.checked = true;
             nameRow.style.display = 'block';
             toggleWrap.classList.remove('disabled');
+
+            // AUTO_PAIR: fetch our public IP once (not on every heartbeat) and attach
+            // it to the broadcast node, so other instances behind the same NAT can
+            // match against it on their own launch. Silent no-op if the fetch fails —
+            // that instance just isn't autopair-discoverable, sync itself still works.
+            if (AUTO_PAIR) startPairBroadcastChannel(name);
+            fetch('https://api.ipify.org?format=json')
+                .then(r => r.json())
+                .then(d => {
+                    myPublicIP = d.ip;
+                    if (myBroadcastRef) myBroadcastRef.update({ publicIP: myPublicIP });
+                })
+                .catch(() => { /* no IP — this broadcast just won't be autopair-matchable */ });
+        } else {
+            stopPairBroadcastChannel();
         }
 
         if (newState === 'following') {
@@ -1635,10 +1754,10 @@
         if (!firebaseReady) return;
         if (syncState === 'following' && followingName === name) {
             setSyncState('idle');
-            showToast('Stopped following ' + name + '.');
+            showToast('⛓️‍💥 Stopped following ' + name + '.');
         } else {
             setSyncState('following', name);
-            showToast('Now following ' + name + '.');
+            showToast('🔗 Now following ' + name + '.');
         }
     }
 
