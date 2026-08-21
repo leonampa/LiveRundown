@@ -4,8 +4,7 @@ LiveRundown is an open-source, real-time theatrical rundown engine, designed to 
 
 [![Donate via Revolut](https://img.shields.io/badge/Donate-Revolut-FFFFFF?style=for-the-badge&logo=revolut&logoColor=white)](https://revolut.me/leonampa) [![License: Custom](https://img.shields.io/badge/License-Custom-238636?style=for-the-badge)](LICENSE)
 
-### See live: [https://leonampa.github.io/liverundown/demo](https://leonampa.github.io/liverundown/demo)
-> Real-time global device syncing is disabled to protect my Firebase free-tier usage limits from public API abuse. The UI navigation, hardware key bindings, and markdown parser are fully functional locally.
+### [Try out the Demo](https://leonampa.github.io/liverundown/demo), or [Jump to Setup](#setup)
 
 <video src="https://github.com/user-attachments/assets/7b52f6a1-ca9a-42d6-870e-d7ce88039eb3" autoplay muted loop></video>
 
@@ -15,20 +14,22 @@ During theatrical productions involving large ensembles (50+ cast and production
 * **The "Lost Tracker" Dilemma:** While a Stage Manager or Prompter can keep a finger on a static paper script or PDF, actors moving on stage must look up and use props, immediately losing track of their current line.
 * **The Rehearsal Burn Rate:** Up to 5 minutes per scene transition is lost simply getting a massive cast aligned on the correct script index, stalling creative momentum.
 * **The Communication Void:** Static PDFs cannot communicate immediate pacing adjustments or line progressions from the tech desk to backstage in real-time.
+* **The Cluttered Desk:** A Stage Manager's station typically juggles a paper script, a stopwatch, a pacing notebook, and a cue sheet as separate physical objects, all competing for the same hands and the same attention.
 
 
 ## The Solution: LiveRundown
-LiveRundown digitizes markdown scripts and processes them into a high-visibility, deterministic grid interface. Operating on a broadcaster-receiver architecture powered by a low-overhead real-time database sync, any crew member or actor can track the exact line progression from their individual mobile devices or workstation terminals. On top of live tracking, it doubles as a rehearsal tool, a pacing log, and a print-ready script exporter — all from the same markdown source and the same single HTML file.
+LiveRundown digitizes markdown scripts and processes them into a high-visibility, deterministic grid interface. Operating on a broadcaster-receiver architecture powered by a low-overhead real-time database sync, any crew member or actor can track the exact line progression from their individual mobile devices or workstation terminals. On top of live tracking, it doubles as a rehearsal tool, a pacing log, a notepad, and a print-ready script exporter - all from the same markdown source and the same single HTML file.
 
 
 ## Key Features
 
-* **🌐Live sync** across every device, broadcaster → receivers, powered by Firebase
-* **⏳Per-actor countdowns** with automatic color allocation and proximity warnings
-* **👤My Lines** — long-press to isolate one or more actors' tracks
-* **⏱️Timer & session log** for pacing data
-* **📄One-click PDF export** of the loaded script
-* **🔘Hardware key bindings** for foot pedals / Stream Decks
+* **🌐 Live sync** across every device, broadcaster → receivers — solves the Lost Tracker Dilemma and the Communication Void
+* **⏳ Per-actor countdowns** with automatic color allocation and proximity warnings — no more guessing whose line is coming up
+* **👤 My Lines** — long-press to isolate one or more actors' tracks
+* **📝 Rich-text Notepad** and **⏱️ Timer & session log** - the script, the stopwatch, and the notebook, all on one screen
+* **📄 One-click PDF export** of the loaded script as a color-coded, print-ready document
+* **🔍 Adjustable page scale**, 50–500%, remembered per device
+* **🔘 Hardware key binding** (F13) for foot pedals — advance the line without touching a screen
 * Single dependency-light HTML file — no build step, no install
 
 ## Setup
@@ -51,7 +52,7 @@ LiveRundown digitizes markdown scripts and processes them into a high-visibility
 }
 ~~~
 > ⚠️ These open rules are designed for low-friction setup within trusted, private cast networks. Adjust Firebase Auth/Rules if deploying publicly.
-* Download [index.html](index.html) from this repo, open it, and edit the Firebase config (between lines 890 and 924 / search for the ✏️ marker near the top of the file)
+* Download [index.html](index.html) from this repo, open it, and edit the Firebase config (between lines 1210 and 1260 / search for the ✏️ marker near the top of the file)
 * Place index.html and your script.md on a folder, and upload the folder as-is on Netlify
 * Visit the given URL on two tabs/windows/devices, and check to see if it works like it should
 

@@ -10,6 +10,10 @@ This is the detailed reference for LiveRundown: every feature, every control, an
 * Arrow Down / F13: Advance one line
 * Arrow Up: Go back one line
 
+## Page scale
+
+* **Open the ⚙️ Settings button** (top-right corner) to adjust the page's zoom level from 50% to 500%, via slider or direct number entry
+* Scales the entire interface — script, dashboard, and every panel — exactly like a browser's native zoom
 
 ## Sync
 
@@ -43,6 +47,16 @@ Lets one actor visually isolate their own track in a busy multi-actor script.
 * Multiple actors can be selected at once — deselecting the last one restores the normal view
 * Nothing here is saved between reloads
 
+## Notepad
+
+A rich-text notes panel for jotting observations during a read-through or live run, independent of script position.
+
+* **Open the NOTES button** to show a draggable, resizable window with a small rich-text editor (bold, italic, underline)
+* **Shorthand keybinds** insert a formatted reference to a script line at the cursor while typing:
+  * **Backtick (`` ` ``)** inserts a reference to the *current* line
+  * **Tilde (`~`)** inserts a reference to the most recent `<LOG>`-marked line reached
+* **Export** saves the note content as its own `.md` file
+* Content stays in the panel for the session but is not saved between reloads
 
 ## Timer & session log
 
@@ -90,9 +104,11 @@ Use `*italics*` or `***italics***` within dialogue for emphasis (rendered as ita
 
 ## Edit index.html
 
-To set up and customize your edition of LiveRundown, edit [index.html](index.html) between lines 890 and 924 (or search for '✏️' with Ctrl+F). From there, you can edit:
+To set up and customize your edition of LiveRundown, edit [index.html](index.html) between lines 1210 and 1260 (or search for '✏️' with Ctrl+F). From there, you can edit:
 * **`FIREBASE_CONFIG`** - Your Firebase credentials, in order to use Sync
 * **Markdown syntax markers** - What markers the app uses, to trigger hidden actions (see [Script Markers](#script-markers))
 * **`colorPalette`** - The list of colors used for each actor, in order (first pinned actors, then by first appearance)
 * **Countdown dashboard proximity warnings** - Toggle if countdown warnings are displayed (`SHOW_COUNTDOWN_WARNINGS`), if flashing effects are allowed (`FLASHING_EFFECTS`), and how many lines are remaining to trigger the "approaching" state (`WARNING_THRESHOLD`). (see [Countdown Dashboard](#countdown-dashboard))
 * **`AUTO_PAIR`** - Toggle automatic pairing to a lone live broadcaster on launch. (see [Sync → Auto-pair](#sync))
+* **`AUTO_COLLAPSE_ON_FOLLOW`** - Toggle whether the bottom button row auto-collapses when this device starts following a broadcaster
+* **`NOTEPAD_SHORTHAND_CURRENT_LINE_KEY` / `NOTEPAD_SHORTHAND_LOG_LINE_KEY`** - The keybinds for the Notepad's line-reference shorthand, or disable either by setting it to `''` (see [Notepad](#notepad))
