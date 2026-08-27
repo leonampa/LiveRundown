@@ -1,4 +1,4 @@
-<!-- ✏️ EDIT VARIABLES (Firebase config, color tags, etc) between lines 1210 and 1260 - or search for '✏️' with Ctrl+F -->
+<!-- ✏️ EDIT VARIABLES (Firebase config, color tags, etc) between lines 1370 and 1420 - or search for '✏️' with Ctrl+F -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -195,7 +195,7 @@
         #sync-btn {
             position: fixed;
             bottom: 10px; right: 10px;
-            width: 80px;
+            width: 66px;
             display: flex;
             flex-direction: column;
             text-align: center;
@@ -265,8 +265,8 @@
            Opens the export panel (font size / page size / Export PDF). */
         #export-btn {
             position: fixed;
-            bottom: 10px; right: 280px;
-            width: 80px;
+            bottom: 10px; right: 238px;
+            width: 66px;
             display: flex;
             flex-direction: column;
             text-align: center;
@@ -292,13 +292,156 @@
             line-height: 1;
         }
 
+        /* ── CHECKLIST BUTTON ─────────────────────────────────
+           Only shown at all if checklist.md was found alongside script.md
+           at load time — see the fetch in window.onload. Sits between HIDE BAR
+           and NOTIFY, always visible on both broadcaster and follower devices
+           (unlike NOTIFY, a checklist is equally useful to anyone in the show). */
+        #checklist-btn {
+            position: fixed;
+            bottom: 10px; right: 390px;
+            width: 66px;
+            display: none; /* flipped to 'flex' only if checklist.md loads successfully */
+            flex-direction: column;
+            text-align: center;
+            border-radius: 4px;
+            overflow: hidden;
+            cursor: pointer;
+            z-index: 200;
+            user-select: none;
+            transition: transform 0.1s;
+        }
+        #checklist-btn:active { transform: scale(0.96); }
+        #checklist-btn-top {
+            font-size: 12px;
+            padding: 5px;
+            font-weight: bold;
+            color: white;
+            background: #555;
+        }
+        #checklist-btn-bottom {
+            background: #444;
+            font-size: 32px;
+            padding: 5px 5px 3px 5px;
+            line-height: 1;
+        }
+
+        /* ── CHECKLIST PANEL ───────────────────────────────────
+           Renders checklist.md: headers/plain text as-is, "- [ ] text" /
+           "- [x] text" lines as tappable rows. Checked state lives only in
+           memory on this device — never synced, never persisted; a reload
+           re-fetches checklist.md fresh and everything starts unchecked. */
+        #checklist-panel {
+            position: fixed;
+            bottom: 90px; right: 100px;
+            width: 300px;
+            max-height: 60vh;
+            background: #2a2a2a;
+            border-radius: 10px;
+            border: 1px solid #444;
+            box-shadow: 0 -4px 28px rgba(0,0,0,0.75);
+            z-index: 300;
+            overflow: hidden;
+            display: none;
+            flex-direction: column;
+            cursor: default;
+        }
+        #checklist-panel-header {
+            background: #1a1a1a;
+            padding: 12px 16px;
+            font-weight: bold;
+            font-size: 15px;
+            letter-spacing: 0.4px;
+            flex-shrink: 0;
+        }
+        #checklist-panel-body {
+            padding: 14px 16px;
+            overflow-y: auto;
+            font-size: 14px;
+            line-height: 1.5;
+        }
+        #checklist-panel-body h1, #checklist-panel-body h2, #checklist-panel-body h3 {
+            margin: 10px 0 6px 0;
+            color: #fff;
+        }
+        #checklist-panel-body h1:first-child,
+        #checklist-panel-body h2:first-child,
+        #checklist-panel-body h3:first-child { margin-top: 0; }
+        #checklist-panel-body p { margin: 6px 0; }
+        #checklist-panel-body hr {
+            border: none;
+            border-top: 1px solid #444;
+            margin: 10px 0;
+        }
+        .checklist-item {
+            display: flex;
+            align-items: flex-start;
+            gap: 8px;
+            padding: 4px 0;
+            cursor: pointer;
+            user-select: none;
+        }
+        .checklist-item .checklist-box {
+            flex-shrink: 0;
+            width: 16px; height: 16px;
+            border: 1px solid #888;
+            border-radius: 3px;
+            margin-top: 2px;
+            text-align: center;
+            line-height: 14px;
+            font-size: 12px;
+        }
+        .checklist-item.checked {
+            color: #777;
+            text-decoration: line-through;
+        }
+        .checklist-item.checked .checklist-box {
+            background: #555;
+            border-color: #555;
+        }
+
+        /* ── NOTIFY BUTTON ─────────────────────────────────────
+           Manual page: prompts for free text, then fires it exactly like a
+           <NOTIFY> script line would (fireNotify()) — toasts locally and, if
+           broadcasting, relays to followers. Sits furthest out, past CHECKLIST.
+           Only shown
+           while broadcasting — a listener has no use for sending a page. */
+        #notify-btn {
+            position: fixed;
+            bottom: 10px; right: 466px;
+            width: 66px;
+            display: none; /* flipped to 'flex' only while syncState === 'broadcasting', see updateSyncUI() */
+            flex-direction: column;
+            text-align: center;
+            border-radius: 4px;
+            overflow: hidden;
+            cursor: pointer;
+            z-index: 200;
+            user-select: none;
+            transition: transform 0.1s;
+        }
+        #notify-btn:active { transform: scale(0.96); }
+        #notify-btn-top {
+            font-size: 12px;
+            padding: 5px;
+            font-weight: bold;
+            color: white;
+            background: #555;
+        }
+        #notify-btn-bottom {
+            background: #444;
+            font-size: 32px;
+            padding: 5px 5px 3px 5px;
+            line-height: 1;
+        }
+
         /* ── TIMER BUTTON ─────────────────────────────────────
            Opens the timer/log panel. Sits between EXPORT and SYNC.
            The top (grey) half turns white while the timer is running. */
         #timer-btn {
             position: fixed;
-            bottom: 10px; right: 100px;
-            width: 80px;
+            bottom: 10px; right: 86px;
+            width: 66px;
             display: flex;
             flex-direction: column;
             text-align: center;
@@ -335,8 +478,8 @@
            mirroring how #timer-btn.running behaves. */
         #notepad-btn {
             position: fixed;
-            bottom: 10px; right: 190px;
-            width: 80px;
+            bottom: 10px; right: 162px;
+            width: 66px;
             display: flex;
             flex-direction: column;
             text-align: center;
@@ -496,8 +639,8 @@
            buttons for a clean, distraction-free view during a performance. */
         #hide-bar-btn {
             position: fixed;
-            bottom: 10px; right: 370px;
-            width: 80px;
+            bottom: 10px; right: 314px;
+            width: 66px;
             display: flex;
             flex-direction: column;
             text-align: center;
@@ -534,7 +677,7 @@
            When collapsed, hide-bar-btn / export-btn / sync-btn are hidden. */
         #btn-group-toggle {
             position: fixed;
-            bottom: 10px; right: 455px;
+            bottom: 10px; right: 390px;
             width: 25px; height: 66px;
             display: flex;
             align-items: center;
@@ -1103,6 +1246,22 @@
     <div id="export-btn-bottom">📄</div>
 </div>
 
+<!-- ── CHECKLIST BUTTON (hidden unless checklist.md was found at load) ──────────────────────────── -->
+<div id="checklist-btn">
+    <div id="checklist-btn-top">CHECK</div>
+    <div id="checklist-btn-bottom">📋</div>
+</div>
+<div id="checklist-panel">
+    <div id="checklist-panel-header">📋 Checklist</div>
+    <div id="checklist-panel-body"></div>
+</div>
+
+<!-- ── NOTIFY BUTTON (manual page — broadcasting only; prompts for text, fires same as a <NOTIFY> script line) ──────────────────────────── -->
+<div id="notify-btn">
+    <div id="notify-btn-top">NOTIFY</div>
+    <div id="notify-btn-bottom">🔔</div>
+</div>
+
 <!-- ── TIMER BUTTON (top half turns white while running) ──────────────────────────── -->
 <div id="timer-btn">
     <div id="timer-btn-top">TIMER</div>
@@ -1224,6 +1383,7 @@
     const PIN_MARKER       = '<PIN>';       // "NAME <PIN>" pins a character to the front of the countdown order. Pins have to be declared at the very top of script.md, before any other lines. (invisible on the live page)
     const PAGEBREAK_MARKER = '<PAGEBREAK>'; // its own line forces a hard page break in the PDF export (invisible on the live page)
     const LOG_MARKER       = '<LOG>';       // prefix on any line — the rest of the line still parses normally (as dialogue/action/heading), but the line is also timestamped in the Timer's log when reached, while the timer is running. (invisible on the live page)
+    const NOTIFY_MARKER    = '<NOTIFY>';    // "<NOTIFY> message text" on its own line — fires a toast (via showToast(), same bubble as sync/export messages) to every connected device, including this one, the moment the line is reached (forward advances only — does NOT require the Timer to be running, unlike LOG). Broadcasts to followers over Firebase; on a standalone (non-broadcasting) device it only toasts locally. Invisible on the live page, same as PIN/PAGEBREAK/LOG.
 
     // ✏️ Colors assigned to characters in order of first appearance (or PIN order).
     const colorPalette = [
@@ -1293,6 +1453,7 @@
     let followingName    = null;
     let myBroadcastRef    = null;
     let followRef         = null;
+    let notifyRef         = null;
     let heartbeatTimer    = null;
     let firebaseReady     = false;
     let db                = null;
@@ -1306,6 +1467,7 @@
     let pendingIPAutoPair = false; // Tier 1 found nobody, waiting on first snapshot for Tier 2
     let broadcastsSnapshotReceived = false;// true once listenToBroadcasts() has real data
     let settingsPanelOpen = false;
+    let checklistPanelOpen = false;
 
     // ── SCALE (page zoom) state ─────────────────────────────
     const SCALE_STORAGE_KEY = 'liverundown_scale';
@@ -1578,6 +1740,8 @@
         scriptLines.forEach(line => {
             if (line.type === 'pagebreak') {
                 content.push({ text: '', pageBreak: 'after' });
+            } else if (line.type === 'notify') {
+                // invisible on the printed page too — nothing to render
             } else if (line.type === 'action') {
                 content.push(buildActionCard(line.text, fontSize));
             } else {
@@ -1610,7 +1774,7 @@
         if (exportPanelOpen) {
             document.getElementById('export-font-size').value = lastExportFontSize;
             document.getElementById('export-page-size').value = lastExportPageSize;
-            // Only one panel visible at a time — close Sync / Timer / Hide-confirm if open.
+            // Only one panel visible at a time — close Sync / Timer / Checklist / Hide-confirm if open.
             if (syncPanelOpen) {
                 syncPanelOpen = false;
                 document.getElementById('sync-panel').style.display = 'none';
@@ -1618,6 +1782,10 @@
             if (timerPanelOpen) {
                 timerPanelOpen = false;
                 document.getElementById('timer-panel').style.display = 'none';
+            }
+            if (checklistPanelOpen) {
+                checklistPanelOpen = false;
+                document.getElementById('checklist-panel').style.display = 'none';
             }
             if (hideConfirmPending) {
                 hideConfirmPending = false;
@@ -1633,7 +1801,7 @@
         if (timerPanelOpen) {
             updateTimerDisplay();
             updateLogSection();
-            // Only one panel visible at a time — close Sync / Export / Hide-confirm if open.
+            // Only one panel visible at a time — close Sync / Export / Checklist / Hide-confirm if open.
             if (syncPanelOpen) {
                 syncPanelOpen = false;
                 document.getElementById('sync-panel').style.display = 'none';
@@ -1641,6 +1809,10 @@
             if (exportPanelOpen) {
                 exportPanelOpen = false;
                 document.getElementById('export-panel').style.display = 'none';
+            }
+            if (checklistPanelOpen) {
+                checklistPanelOpen = false;
+                document.getElementById('checklist-panel').style.display = 'none';
             }
             if (hideConfirmPending) {
                 hideConfirmPending = false;
@@ -1688,6 +1860,14 @@
     // Export panel — prevent body click from advancing lines
     document.getElementById('export-panel').addEventListener('click', e => e.stopPropagation());
 
+    // NOTIFY button — free-text prompt, then fires exactly like a <NOTIFY>
+    // script line (fireNotify handles the local toast + Firebase relay).
+    document.getElementById('notify-btn').addEventListener('click', e => {
+        e.stopPropagation();
+        const text = window.prompt('Notification text:');
+        if (text && text.trim()) fireNotify(text.trim());
+    });
+
     // Export button inside the panel — validate inputs, then generate and download the PDF
     document.getElementById('export-confirm-btn').addEventListener('click', () => {
         const fontSizeInput = document.getElementById('export-font-size');
@@ -1717,19 +1897,19 @@
         document.getElementById('notepad-btn').style.display = 'none';
         document.getElementById('timer-btn').style.display = 'none';
         document.getElementById('sync-btn').style.display = 'none';
+        document.getElementById('notify-btn').style.display = 'none';
+        document.getElementById('checklist-btn').style.display = 'none'; // harmless if it was already 'none' (no checklist.md this show)
         document.getElementById('btn-group-toggle').style.display = 'none';
         document.getElementById('hide-bar-confirm').style.display = 'none';
-        // Also close any open panels — their trigger buttons are gone now.
-        // Note: the timer itself keeps running in the background if it was
-        // running — only the panel/buttons are hidden, same as sync staying
-        // connected while the bar is hidden.
-        syncPanelOpen = false;
+        syncPanelOpen = false;  // Also close any open panels — their trigger buttons are gone now.
         exportPanelOpen = false;
         timerPanelOpen = false;
+        checklistPanelOpen = false;
         timerResetPending = false;
         document.getElementById('sync-panel').style.display = 'none';
         document.getElementById('export-panel').style.display = 'none';
         document.getElementById('timer-panel').style.display = 'none';
+        document.getElementById('checklist-panel').style.display = 'none';
         document.getElementById('timer-reset-confirm').style.display = 'none';
         document.getElementById('reveal-btn').style.display = 'flex';
     }
@@ -1761,6 +1941,10 @@
                 timerPanelOpen = false;
                 document.getElementById('timer-panel').style.display = 'none';
             }
+            if (checklistPanelOpen) {
+                checklistPanelOpen = false;
+                document.getElementById('checklist-panel').style.display = 'none';
+            }
         }
     }
 
@@ -1786,6 +1970,23 @@
     // the current sync status color (🔴/🟢/🔵). Does not affect the sync
     // connection itself — purely a UI declutter for mid-show use. Always
     // starts expanded on page load (not persisted).
+    // Recomputes where the (expanded) collapse toggle strip sits, since NOTIFY
+    // (broadcasting-only) and CHECKLIST (only if checklist.md loaded) can each
+    // independently be absent — the toggle should hug whichever real button is
+    // currently furthest right, not assume a fixed max width. Collapsed
+    // position is always the fixed right:10px regardless (see CSS).
+    function repositionBtnGroupToggle() {
+        const toggle = document.getElementById('btn-group-toggle');
+        if (btnGroupCollapsed) return; // collapsed position is fixed in CSS, nothing to compute
+        const checklistVisible = document.getElementById('checklist-btn').style.display === 'flex';
+        const notifyVisible    = document.getElementById('notify-btn').style.display === 'flex';
+        let right;
+        if (notifyVisible)         right = 542; // past notify-btn (466), the leftmost of the two optional buttons
+        else if (checklistVisible) right = 466; // past checklist-btn (390)
+        else                       right = 390; // past hide-bar-btn (314), the previous rightmost fixed button
+        toggle.style.right = right + 'px';
+    }
+
     function setBtnGroupCollapsed(collapsed) {
         btnGroupCollapsed = collapsed;
         const toggle = document.getElementById('btn-group-toggle');
@@ -1796,9 +1997,23 @@
         document.getElementById('notepad-btn').style.display  = collapsed ? 'none' : 'flex';
         document.getElementById('timer-btn').style.display    = collapsed ? 'none' : 'flex';
         document.getElementById('sync-btn').style.display     = collapsed ? 'none' : 'flex';
+        // NOTIFY/CHECKLIST each have their own separate visibility rule (broadcasting-only /
+        // checklist.md-present) layered on top of collapse — collapsing always hides them if
+        // they were showing, but expanding only restores them if that separate rule still holds.
+        document.getElementById('notify-btn').style.display =
+            collapsed ? 'none' : (syncState === 'broadcasting' ? 'flex' : 'none');
+        document.getElementById('checklist-btn').style.display =
+            collapsed ? 'none' : (checklistMarkdown !== null ? 'flex' : 'none');
 
         toggle.classList.toggle('collapsed', collapsed);
         toggleIcon.textContent = collapsed ? document.getElementById('sync-btn-bottom').textContent : '▶️';
+        // Collapsed position (right:10px) is set by the .collapsed CSS class —
+        // but an inline style.right always wins over a class selector, so any
+        // leftover inline value from repositionBtnGroupToggle() (called while
+        // expanded) must be cleared here, or the toggle gets stuck wherever it
+        // last sat instead of snapping to the corner.
+        if (collapsed) toggle.style.right = '';
+        else repositionBtnGroupToggle();
 
         // Collapsing hides the buttons that open these panels/popups — close
         // any that happen to be open so nothing is left stranded on screen.
@@ -1815,6 +2030,10 @@
             if (timerPanelOpen) {
                 timerPanelOpen = false;
                 document.getElementById('timer-panel').style.display = 'none';
+            }
+            if (checklistPanelOpen) {
+                checklistPanelOpen = false;
+                document.getElementById('checklist-panel').style.display = 'none';
             }
             if (timerResetPending) {
                 timerResetPending = false;
@@ -1903,6 +2122,18 @@
                 document.getElementById('upload-container').style.display = 'none';
             })
             .catch(() => console.log('script.md not found, waiting for upload.'));
+
+        // checklist.md is entirely optional and separate from the script —
+        // silent no-op (button just never appears) if it's missing.
+        fetch('checklist.md')
+            .then(r => r.ok ? r.text() : Promise.reject())
+            .then(text => {
+                checklistMarkdown = text;
+                renderChecklist(text);
+                document.getElementById('checklist-btn').style.display = 'flex';
+                if (!btnGroupCollapsed) repositionBtnGroupToggle();
+            })
+            .catch(() => console.log('checklist.md not found — Checklist button stays hidden.'));
     };
 
 
@@ -2032,6 +2263,7 @@
         if (myBroadcastRef) { myBroadcastRef.remove(); myBroadcastRef = null; }
         clearInterval(heartbeatTimer); heartbeatTimer = null;
         if (followRef) { followRef.off(); followRef = null; }
+        if (notifyRef) { notifyRef.off(); notifyRef = null; }
 
         syncState     = newState;
         followingName = null;
@@ -2083,6 +2315,21 @@
             followRef.on('value', snap => {
                 const idx = snap.val();
                 if (idx !== null && idx !== undefined) advanceLine(idx, true);
+            });
+
+            // NOTIFY relay: separate ref/listener on the same broadcaster node's
+            // 'notify' field (kept apart from the index listener above since they
+            // serve different purposes). lastNotifyTs=0 baselines us against
+            // whatever's already sitting there — see fireNotify()'s comment above
+            // for why that first value must never be toasted.
+            lastNotifyTs = 0;
+            notifyRef = db.ref('broadcasts/' + name + '/notify');
+            notifyRef.on('value', snap => {
+                const n = snap.val();
+                if (n && n.ts && n.ts > lastNotifyTs) {
+                    lastNotifyTs = n.ts;
+                    showToast('🔔 ' + n.text);
+                }
             });
             toggleEl.checked = false;
             nameRow.style.display = 'none';
@@ -2158,6 +2405,17 @@
             txt.textContent      = followingName;
         }
 
+        // NOTIFY is only useful to a broadcaster (a listener has nothing to
+        // page out to) — shown/hidden here, the one place sync state changes,
+        // rather than scattered across every place syncState could change.
+        // Respects collapse: if the group is currently collapsed, stays
+        // hidden regardless — setBtnGroupCollapsed re-applies this same rule
+        // when the group next expands.
+        if (!btnGroupCollapsed) {
+            document.getElementById('notify-btn').style.display = syncState === 'broadcasting' ? 'flex' : 'none';
+            repositionBtnGroupToggle();
+        }
+
         // Mirror the same status dot onto the collapsed group-toggle icon,
         // so the sync state stays glanceable even with the buttons hidden.
         if (btnGroupCollapsed) {
@@ -2186,10 +2444,14 @@
         syncPanelOpen = !syncPanelOpen;
         document.getElementById('sync-panel').style.display = syncPanelOpen ? 'flex' : 'none';
         if (syncPanelOpen) {
-            // Only one panel visible at a time — close Export / Hide-confirm if open.
+            // Only one panel visible at a time — close Export / Checklist / Hide-confirm if open.
             if (exportPanelOpen) {
                 exportPanelOpen = false;
                 document.getElementById('export-panel').style.display = 'none';
+            }
+            if (checklistPanelOpen) {
+                checklistPanelOpen = false;
+                document.getElementById('checklist-panel').style.display = 'none';
             }
             if (hideConfirmPending) {
                 hideConfirmPending = false;
@@ -2205,6 +2467,34 @@
         clearTimeout(toastTimer);
         toastTimer = setTimeout(() => t.classList.remove('show'), 3000);
     }
+
+    // Fires a <NOTIFY> (from a script line, or the manual 🔔 button) to every
+    // connected device, including this one. This device always toasts locally
+    // right away — no round-trip through Firebase needed for that, since we
+    // already know the text. If we're currently broadcasting, we also write it
+    // to our Firebase node (paired with a fresh timestamp) so every follower's
+    // listener picks it up and toasts locally on their end too. If we're not
+    // broadcasting (idle, or following someone else), there's nothing to relay
+    // to — it's a local-only toast on this device.
+    // No history/persistence: the Firebase field is simply overwritten each
+    // time, nothing is appended or kept.
+    function fireNotify(text) {
+        if (!text) return;
+        showToast('🔔 ' + text);
+        if (myBroadcastRef) {
+            myBroadcastRef.update({ notify: { text, ts: Date.now() } });
+        }
+    }
+
+    // Followers only: tracks the timestamp of the last NOTIFY we've already
+    // shown, so a device that (re)connects mid-show doesn't toast whatever
+    // stale message happens to already be sitting on the broadcaster's node —
+    // Firebase hands a 'value' listener the CURRENT value immediately on
+    // attach, not just on future changes, so without this a late-joiner would
+    // instantly toast an old message. Reset to 0 each time we start following
+    // someone new (see setSyncState), so the first value seen for a fresh
+    // follow is always baselined silently, never toasted.
+    let lastNotifyTs = 0;
 
 
     // ── SCRIPT PARSING ───────────────────────────────────
@@ -2322,6 +2612,16 @@
                 continue;
             }
 
+            // NOTIFY_MARKER — a whole line of its own: "<NOTIFY> message text",
+            // same prefix style as LOG. Entirely consumed here (unlike LOG, it
+            // doesn't wrap a dialogue/action line) — invisible on the live page,
+            // nothing further to parse on this line.
+            if (cl.toUpperCase().startsWith(NOTIFY_MARKER.toUpperCase())) {
+                const notifyText = cl.slice(NOTIFY_MARKER.length).trim();
+                if (notifyText) scriptLines.push({ type: 'notify', notifyText });
+                continue;
+            }
+
             // A PIN-marker line found OUTSIDE the top-of-file PIN block is not
             // valid syntax here — completely ignored (not shown, not parsed
             // as dialogue), since pinning only applies at the very top.
@@ -2402,7 +2702,7 @@
         const c = document.getElementById('script-container');
         c.innerHTML = '';
         scriptLines.forEach((line, i) => {
-            if (line.type === 'pagebreak') return; // invisible on the live page
+            if (line.type === 'pagebreak' || line.type === 'notify') return; // invisible on the live page
             const row = document.createElement('div');
             row.id = 'line-' + i;
             row.addEventListener('dblclick', () => advanceLine(i));
@@ -2581,7 +2881,8 @@
         // direction of travel so they never consume a click/key press or
         // become a stuck target index.
         const direction = targetIndex >= currentIndex ? 1 : -1;
-        while (targetIndex >= 0 && targetIndex < scriptLines.length && scriptLines[targetIndex].type === 'pagebreak') {
+        while (targetIndex >= 0 && targetIndex < scriptLines.length &&
+               (scriptLines[targetIndex].type === 'pagebreak' || scriptLines[targetIndex].type === 'notify')) {
             targetIndex += direction;
         }
         if (targetIndex < 0 || targetIndex >= scriptLines.length) return;
@@ -2599,6 +2900,17 @@
             for (let i = currentIndex + 1; i <= targetIndex; i++) {
                 const l = scriptLines[i];
                 if (l && l.isLog) addLogEntry(l.logText, i);
+            }
+        }
+
+        // <NOTIFY> — forward advances only, same multi-line-jump-safe scan as
+        // LOG above, but deliberately NOT gated on timerRunning: unlike a log
+        // entry, a notify toast has no timestamp semantics, so there's no
+        // reason to require the Timer to be running for a page to go out.
+        if (direction === 1 && currentIndex >= 0) {
+            for (let i = currentIndex + 1; i <= targetIndex; i++) {
+                const l = scriptLines[i];
+                if (l && l.type === 'notify') fireNotify(l.notifyText);
             }
         }
 
@@ -2647,7 +2959,7 @@
         settingsPanelOpen = !settingsPanelOpen;
         document.getElementById('settings-panel').style.display = settingsPanelOpen ? 'flex' : 'none';
         if (settingsPanelOpen) {
-            // Only one panel visible at a time — close Sync / Export / Timer / Hide-confirm if open.
+            // Only one panel visible at a time — close Sync / Export / Timer / Checklist / Hide-confirm if open.
             if (syncPanelOpen) {
                 syncPanelOpen = false;
                 document.getElementById('sync-panel').style.display = 'none';
@@ -2660,6 +2972,10 @@
                 timerPanelOpen = false;
                 document.getElementById('timer-panel').style.display = 'none';
             }
+            if (checklistPanelOpen) {
+                checklistPanelOpen = false;
+                document.getElementById('checklist-panel').style.display = 'none';
+            }
             if (hideConfirmPending) {
                 hideConfirmPending = false;
                 document.getElementById('hide-bar-confirm').style.display = 'none';
@@ -2667,7 +2983,102 @@
         }
     }
 
-    // ── NOTEPAD ──────────────────────────────────────────
+    // ── CHECKLIST ────────────────────────────────────────
+    // checklist.md, if present alongside script.md, is fetched once at load
+    // (see window.onload) and rendered here. Deliberately NOT wired into the
+    // script parser at all — no new marker syntax, this is a totally separate
+    // sibling-file feature. Supports plain text, #/##/### headers, and
+    // "- [ ] text" / "- [x] text" lines as tappable checkboxes. Checked state
+    // is tracked only in a local array (checklistState), never written back
+    // to Firebase or localStorage — a page reload always starts fresh from
+    // whatever checklist.md currently says on disk.
+    let checklistMarkdown = null;   // raw text, kept so a reload of the PANEL (not the page) could re-render if ever needed
+    let checklistState    = [];     // parallel array of booleans, one per checklist item, in document order
+
+    function renderChecklist(markdown) {
+        const body = document.getElementById('checklist-panel-body');
+        body.innerHTML = '';
+        checklistState = [];
+        let itemIndex = 0;
+
+        markdown.split('\n').forEach(rawLine => {
+            const line = rawLine.trim();
+            if (!line) return;
+
+            const checkMatch = line.match(/^-\s*\[([ xX])\]\s*(.*)$/);
+            if (checkMatch) {
+                const idx = itemIndex++;
+                checklistState[idx] = checkMatch[1].toLowerCase() === 'x';
+                const row = document.createElement('div');
+                row.className = 'checklist-item' + (checklistState[idx] ? ' checked' : '');
+                row.innerHTML = '<span class="checklist-box">' + (checklistState[idx] ? '✓' : '') + '</span><span class="checklist-label"></span>';
+                row.querySelector('.checklist-label').textContent = checkMatch[2]; // textContent — never innerHTML — for user-supplied item text
+                row.addEventListener('click', e => {
+                    e.stopPropagation();
+                    checklistState[idx] = !checklistState[idx];
+                    row.classList.toggle('checked', checklistState[idx]);
+                    row.querySelector('.checklist-box').textContent = checklistState[idx] ? '✓' : '';
+                });
+                body.appendChild(row);
+                return;
+            }
+
+            // Horizontal rule: a line that's just three-or-more dashes (allowing
+            // trailing whitespace, which the earlier .trim() already handles).
+            if (/^-{3,}$/.test(line)) {
+                body.appendChild(document.createElement('hr'));
+                return;
+            }
+
+            const headerMatch = line.match(/^(#{1,3})\s*(.*)$/);
+            if (headerMatch) {
+                const h = document.createElement('h' + headerMatch[1].length);
+                h.textContent = headerMatch[2];
+                body.appendChild(h);
+                return;
+            }
+
+            const p = document.createElement('p');
+            p.textContent = line;
+            body.appendChild(p);
+        });
+    }
+
+    function toggleChecklistPanel() {
+        checklistPanelOpen = !checklistPanelOpen;
+        document.getElementById('checklist-panel').style.display = checklistPanelOpen ? 'flex' : 'none';
+        if (checklistPanelOpen) {
+            // Only one panel visible at a time — close Sync / Export / Timer / Settings / Hide-confirm if open.
+            if (syncPanelOpen) {
+                syncPanelOpen = false;
+                document.getElementById('sync-panel').style.display = 'none';
+            }
+            if (exportPanelOpen) {
+                exportPanelOpen = false;
+                document.getElementById('export-panel').style.display = 'none';
+            }
+            if (timerPanelOpen) {
+                timerPanelOpen = false;
+                document.getElementById('timer-panel').style.display = 'none';
+            }
+            if (settingsPanelOpen) {
+                settingsPanelOpen = false;
+                document.getElementById('settings-panel').style.display = 'none';
+            }
+            if (hideConfirmPending) {
+                hideConfirmPending = false;
+                document.getElementById('hide-bar-confirm').style.display = 'none';
+            }
+        }
+    }
+
+    document.getElementById('checklist-btn').addEventListener('click', e => {
+        e.stopPropagation();
+        toggleChecklistPanel();
+    });
+    document.getElementById('checklist-panel').addEventListener('click', e => e.stopPropagation());
+
+
     // Floating, draggable/resizable rich-text notes window built on Quill.
     // Content is session-only — never persisted to localStorage or anywhere
     // else; it lives only in the Quill editor's in-memory state and is gone
@@ -2764,7 +3175,7 @@
     function insertLineReference(range, idx) {
         if (!range || idx == null || idx < 0 || idx >= scriptLines.length) return;
         const line = scriptLines[idx];
-        if (!line || line.type === 'pagebreak') return;
+        if (!line || line.type === 'pagebreak' || line.type === 'notify') return;
 
         let ref;
         if (line.type === 'dialogue') {
@@ -2932,6 +3343,8 @@
         if (e.target.closest('#timer-btn') || e.target.closest('#timer-panel') || e.target.closest('#timer-reset-confirm')) return;
         if (e.target.closest('#settings-btn') || e.target.closest('#settings-panel')) return;
         if (e.target.closest('#notepad-btn') || e.target.closest('#notepad-window')) return;
+        if (e.target.closest('#notify-btn')) return;
+        if (e.target.closest('#checklist-btn') || e.target.closest('#checklist-panel')) return;
         if (e.target.closest('#hide-bar-btn') || e.target.closest('#hide-bar-confirm')) return;
         if (e.target.closest('#reveal-btn')) return;
         if (e.target.closest('#btn-group-toggle')) return;
@@ -2958,6 +3371,11 @@
         if (settingsPanelOpen) {
             settingsPanelOpen = false;
             document.getElementById('settings-panel').style.display = 'none';
+            return;
+        }
+        if (checklistPanelOpen) {
+            checklistPanelOpen = false;
+            document.getElementById('checklist-panel').style.display = 'none';
             return;
         }
         if (hideConfirmPending) {

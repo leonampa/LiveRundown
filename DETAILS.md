@@ -65,6 +65,23 @@ A rich-text notes panel for jotting observations during a read-through or live r
 * Any line prefixed with `<LOG>` in `script.md` is timestamped automatically the moment it's reached — but only while the timer is running
 * Download the session's log as a plain-text file from the same panel, one timestamped entry per line, in the order they occurred
 
+## Notify
+
+Sends an instant toast notification to every connected device — broadcaster and all followers alike.
+
+* **Automatic:** any `<NOTIFY>` line in `script.md` fires the moment it's reached while advancing forward. Formatted as: `<NOTIFY> Message`
+* **Manual:** the **🔔 Notify button** (broadcaster only — hidden for followers, since there's nothing for them to page out to) opens a free-text prompt and sends it the same way
+* Toasts have no history — each one simply replaces whatever was showing, nothing is logged or saved
+* A device that reconnects mid-show won't see a stale notification replayed — only genuinely new ones trigger a toast
+
+## Checklist
+
+An optional, read-only companion list — for props, costume changes, or any per-show checklist — rendered from its own file, entirely separate from `script.md`.
+
+* If a `checklist.md` file sits alongside `script.md`, the **📋 Checklist button** appears automatically; if it's missing, the button simply doesn't show
+* Renders standard markdown: `#`/`##`/`###` headers, plain text, and `---` as a horizontal rule
+* `- [ ] Item text` lines become tappable checkboxes — tap to check/uncheck, checked items grey out and strike through
+* Checked state lives only on this device, for this session — never synced to other devices, never saved between reloads
 
 ## PDF export
 
@@ -82,14 +99,15 @@ Plain-text tags placed directly in `script.md`. All are invisible on the live pa
 |---|---|---|
 | `NAME <PIN>` (or `NAME1 & NAME2 <PIN>`) | Very top of the file, before any other lines | Pins that actor (or actors) to the front of the countdown dashboard's default order, ahead of first-appearance order |
 | `<PAGEBREAK>` | Its own line, anywhere | Forces a hard page break at that point in the PDF export only |
-| `<LOG>` | Prefixed onto any line | Marks that line for the Timer's session log; the rest of the line still parses and displays normally |
+| `<LOG> Line` | Prefixed onto any line | Marks that line for the Timer's session log; the rest of the line still parses and displays normally |
+| `<NOTIFY> Message` | Its own line, anywhere | Sends the given text as a toast to every connected device the moment the line is reached (forward advances only) — see [Notify](#notify) |
 
 You may change those markers, by editing index.html (see [Edit index.html](#edit-indexhtml))
 
 ## Interface controls
 
 * **Hide Bar:** collapses the entire bottom dashboard out of view (with a confirmation step), for a fully distraction-free script view
-* **Collapsible button group:** the Hide Bar / Export / Timer / Sync buttons collapse into a single compact indicator showing live sync status (🔴/🟢/🔵) — purely a UI declutter, doesn't touch the sync connection itself
+* **Collapsible button group:** the bottom-right buttons collapse into a single compact indicator showing live sync status (🔴/🟢/🔵) — purely a UI declutter, doesn't touch the sync connection itself
 
 
 ## Markdown format
@@ -104,7 +122,7 @@ Use `*italics*` or `***italics***` within dialogue for emphasis (rendered as ita
 
 ## Edit index.html
 
-To set up and customize your edition of LiveRundown, edit [index.html](index.html) between lines 1210 and 1260 (or search for '✏️' with Ctrl+F). From there, you can edit:
+To set up and customize your edition of LiveRundown, edit [index.html](index.html) between lines 1370 and 1420 (or search for '✏️' with Ctrl+F). From there, you can edit:
 * **`FIREBASE_CONFIG`** - Your Firebase credentials, in order to use Sync
 * **Markdown syntax markers** - What markers the app uses, to trigger hidden actions (see [Script Markers](#script-markers))
 * **`colorPalette`** - The list of colors used for each actor, in order (first pinned actors, then by first appearance)

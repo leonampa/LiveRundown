@@ -27,6 +27,8 @@ LiveRundown digitizes markdown scripts and processes them into a high-visibility
 * **⏳ Per-actor countdowns** with automatic color allocation and proximity warnings — no more guessing whose line is coming up
 * **👤 My Lines** — long-press to isolate one or more actors' tracks
 * **📝 Rich-text Notepad** and **⏱️ Timer & session log** - the script, the stopwatch, and the notebook, all on one screen
+* **🔔 Live paging** — send an instant toast to every connected device via a `<NOTIFY>` script marker or the manual Notify button
+* **📋 Checklist** — a `checklist.md` sidecar file renders as a tappable prop/task list
 * **📄 One-click PDF export** of the loaded script as a color-coded, print-ready document
 * **🔍 Adjustable page scale**, 50–500%, remembered per device
 * **🔘 Hardware key binding** (F13) for foot pedals — advance the line without touching a screen
@@ -52,7 +54,7 @@ LiveRundown digitizes markdown scripts and processes them into a high-visibility
 }
 ~~~
 > ⚠️ These open rules are designed for low-friction setup within trusted, private cast networks. Adjust Firebase Auth/Rules if deploying publicly.
-* Download [index.html](index.html) from this repo, open it, and edit the Firebase config (between lines 1210 and 1260 / search for the ✏️ marker near the top of the file)
+* Download [index.html](index.html) from this repo, open it, and edit the Firebase config (between lines 1370 and 1420 / search for the ✏️ marker near the top of the file)
 * Place index.html and your script.md on a folder, and upload the folder as-is on Netlify
 * Visit the given URL on two tabs/windows/devices, and check to see if it works like it should
 

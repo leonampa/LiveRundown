@@ -19,6 +19,8 @@ ELARA & JAX & KAI & MIRA & SILAS & VANE <PIN>
 
 **KAI *(taping the screen)*** No, she’s right. That’s hydraulic pressure.
 
+<NOTIFY> Test Notification #1
+
 **JAX & MIRA *(sharpening a piece of rebar)*** How far out?
 
 **SILAS** Too far for comfort. We need to move to the lower level.
@@ -45,6 +47,8 @@ ELARA & JAX & KAI & MIRA & SILAS & VANE <PIN>
 
 **MIRA *(pointing toward the tunnel mouth)*** Look! A light.
 
+<NOTIFY> Test Notification #2
+
 **ELARA** That’s not a patrol light. It’s too steady.
 
 **KAI *(shining the tablet at the wall)*** It’s a maintenance hatch.
@@ -66,6 +70,8 @@ ELARA & JAX & KAI & MIRA & SILAS & VANE <PIN>
 **ELARA** It’s stuck—wait, it’s turning.
 
 **KAI** Clear! Get inside!
+
+<NOTIFY> Test Notification #3
 
 **JAX & MIRA *(diving into the darkness)*** Don't look back!
 
