@@ -54,7 +54,7 @@ LiveRundown digitizes markdown scripts and processes them into a high-visibility
 }
 ~~~
 > ⚠️ These open rules are designed for low-friction setup within trusted, private cast networks. Adjust Firebase Auth/Rules if deploying publicly.
-* Download [index.html](index.html) from this repo, open it, and edit the Firebase config (between lines 1370 and 1420 / search for the ✏️ marker near the top of the file)
+* Download [index.html](index.html) from this repo, open it, and edit the Firebase config (in the ✏️ CONFIG block at the very top of the file)
 * Place index.html and your script.md on a folder, and upload the folder as-is on Netlify
 * Visit the given URL on two tabs/windows/devices, and check to see if it works like it should
 

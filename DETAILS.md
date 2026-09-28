@@ -122,7 +122,7 @@ Use `*italics*` or `***italics***` within dialogue for emphasis (rendered as ita
 
 ## Edit index.html
 
-To set up and customize your edition of LiveRundown, edit [index.html](index.html) between lines 1370 and 1420 (or search for '✏️' with Ctrl+F). From there, you can edit:
+To set up and customize your edition of LiveRundown, edit the ✏️ **CONFIG** block at the very top of [index.html](index.html) (or search for '✏️' with Ctrl+F). From there, you can edit:
 * **`FIREBASE_CONFIG`** - Your Firebase credentials, in order to use Sync
 * **Markdown syntax markers** - What markers the app uses, to trigger hidden actions (see [Script Markers](#script-markers))
 * **`colorPalette`** - The list of colors used for each actor, in order (first pinned actors, then by first appearance)
@@ -130,3 +130,8 @@ To set up and customize your edition of LiveRundown, edit [index.html](index.htm
 * **`AUTO_PAIR`** - Toggle automatic pairing to a lone live broadcaster on launch. (see [Sync → Auto-pair](#sync))
 * **`AUTO_COLLAPSE_ON_FOLLOW`** - Toggle whether the bottom button row auto-collapses when this device starts following a broadcaster
 * **`NOTEPAD_SHORTHAND_CURRENT_LINE_KEY` / `NOTEPAD_SHORTHAND_LOG_LINE_KEY`** - The keybinds for the Notepad's line-reference shorthand, or disable either by setting it to `''` (see [Notepad](#notepad))
+* **`NOTEPAD_MARKDOWN`** - Toggle Markdown typing shortcuts in the Notepad (`*italic*`, `**bold**`, `***bold italic***`)
+* **`SYNC_COLORS`** / **`ANIMALS`** - Sync state colors, and the random animal names given to new broadcasters
+* **PDF export defaults, page scale limits and timings** - `EXPORT_DEFAULT_*`, `SCALE_*`, `TOAST_DURATION_MS`, `MY_LINES_HOLD_MS`, `BROADCAST_*`
+
+Right below it, the ✏️ **STRINGS** block holds every piece of text the app shows (button labels, panels, toasts, and downloaded file names), so you can translate the whole app in one place. File names support `{YYYY}` `{YY}` `{MM}` `{DD}` `{HH}` `{mm}` `{ss}` tokens (e.g. `notes-{YYYY}-{MM}-{DD}`).

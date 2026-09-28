@@ -1,10 +1,197 @@
-<!-- ✏️ EDIT VARIABLES (Firebase config, color tags, etc) between lines 1370 and 1420 - or search for '✏️' with Ctrl+F -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>LiveRundown</title>
+    <script>
+    // ════════════════════════════════════════════════════
+    //  ✏️ CONFIGURATION
+    // ════════════════════════════════════════════════════
+
+    // ✏️ Firebase project config used for the cross-device sync feature.
+    // If apiKey is left as the placeholder, sync stays disabled.
+    const FIREBASE_CONFIG = {
+        apiKey:            "YOUR_API_KEY",
+        authDomain:        "YOUR_PROJECT.firebaseapp.com",
+        databaseURL:       "https://YOUR_PROJECT-default-rtdb.europe-west1.firebasedatabase.app",
+        projectId:         "YOUR_PROJECT",
+        storageBucket:     "YOUR_PROJECT.appspot.com",
+        messagingSenderId: "YOUR_SENDER_ID",
+        appId:             "YOUR_APP_ID"
+    };
+
+    // ✏️ Markdown syntax markers recognized by the script parser.
+    const PIN_MARKER       = '<PIN>';       // "NAME <PIN>" pins a character to the front of the countdown order. Pins have to be declared at the very top of script.md, before any other lines. (invisible on the live page)
+    const PAGEBREAK_MARKER = '<PAGEBREAK>'; // its own line forces a hard page break in the PDF export (invisible on the live page)
+    const LOG_MARKER       = '<LOG>';       // prefix on any line — the rest of the line still parses normally (as dialogue/action/heading), but the line is also timestamped in the Timer's log when reached, while the timer is running. (invisible on the live page)
+    const NOTIFY_MARKER    = '<NOTIFY>';    // "<NOTIFY> message text" on its own line — fires a toast to every connected device, including this one, the moment the line is reached (forward advances only — does NOT require the Timer to be running, unlike LOG). Broadcasts to followers over Firebase; on a standalone (non-broadcasting) device it only toasts locally. Invisible on the live page, same as PIN/PAGEBREAK/LOG.
+
+    // ✏️ Colors assigned to actors in order of first appearance (or PIN order).
+    const colorPalette = [
+        '#ff0000','#00aa00','#0000ff','#ff00ff','#ff8c00',
+        '#cccc00','#00cccc','#8a2be2','#ff1493','#00ced1',
+        '#adff2f','#888888','#1e90ff','#815129','#30703D',
+        '#000077','#C6A664','#924E7D','#cc4400'
+    ];
+
+    // ✏️ Countdown dashboard visual proximity warnings.
+    const SHOW_COUNTDOWN_WARNINGS = true; // master toggle for the black/red proximity coloring below. If false, dash counts stay in their normal look always.
+    const WARNING_THRESHOLD       = 5;    // lines-remaining cutoff for entering the "approaching" (black-on-white) state.
+    const FLASHING_EFFECTS        = true; // if true, a countdown of 0 or 1 flashes white-on-red/white-on-grey; if false, it's solid white-on-red (accessibility option).
+
+    // ✏️ Sync (broadcaster) colors, per sync state. "button" is the top half of
+    // the SYNC button, "dot" is the status dot in the Sync panel's footer.
+    // (The emoji shown on the SYNC button itself lives in STRINGS below.)
+    const SYNC_COLORS = {
+        idle:         { button: '#555555', dot: '#cc2222' },
+        broadcasting: { button: '#1565c0', dot: '#1e88e5' },
+        following:    { button: '#2e7d32', dot: '#43a047' }
+    };
+
+    // ✏️ Random default broadcaster names: "<STRINGS.anonymousPrefix> <animal>",
+    // e.g. "Anonymous Fox". Add, remove or translate freely.
+    const ANIMALS = [
+        'Fox','Leopard','Tiger','Bear','Wolf','Eagle','Hawk',
+        'Owl','Lynx','Puma','Jaguar','Falcon','Raven','Cobra',
+        'Crane','Heron','Bison','Otter','Viper','Moose'
+    ];
+
+    // ✏️ Auto-pair: on page load, silently look for a live broadcast (same browser via
+    // BroadcastChannel, or same network via matching public IP through Firebase) and
+    // automatically sync to it. If there's more than a single broadcaster, it will not auto-pair.
+    const AUTO_PAIR = true;
+
+    // ✏️ Auto-collapse: when this device starts FOLLOWING another broadcaster
+    // automatically collapse the bottom button row down to just the collapse toggle 
+    const AUTO_COLLAPSE_ON_FOLLOW = true;
+
+    // ✏️ Notepad shorthand keys: single-character keybinds that insert a formatted
+    // reference to a script line at the cursor while typing notes. Backtick refs the
+    // CURRENT line; tilde refs the most recent <LOG>-marked line reached. Set either
+    // to '' (empty string) to disable that shortcut entirely — the key then types
+    // normally with no special behavior.
+    const NOTEPAD_SHORTHAND_CURRENT_LINE_KEY = '`';
+    const NOTEPAD_SHORTHAND_LOG_LINE_KEY     = '~';
+
+    // ✏️ Notepad Markdown shortcuts: typing *italic*, **bold** or ***bold italic***
+    // converts to real formatting as soon as the closing asterisk(s) are typed.
+    const NOTEPAD_MARKDOWN = true;
+
+    // ✏️ PDF export defaults (both can still be changed per-export in the Export panel).
+    const EXPORT_DEFAULT_FONT_SIZE = 12;   // pt, allowed range 6–24
+    const EXPORT_DEFAULT_PAGE_SIZE = 'A4'; // 'A4' or 'LETTER'
+
+    // ✏️ Page scale (Settings ⚙️ → Scale), in percent.
+    const SCALE_DEFAULT = 100;
+    const SCALE_MIN     = 50;
+    const SCALE_MAX     = 500;
+
+    // ✏️ Timings (all in milliseconds).
+    const TOAST_DURATION_MS      = 3000;  // how long toast notifications stay on screen
+    const MY_LINES_HOLD_MS       = 3000;  // how long to press-and-hold an actor's dashboard block to toggle My Lines
+    const BROADCAST_HEARTBEAT_MS = 15000; // how often a broadcaster pings Firebase to say it's still live
+    const BROADCAST_NAME_MAX_LENGTH = 40; // longest broadcaster name allowed (longer names from other devices are cut short on display)
+    const BROADCAST_STALE_MS     = 30000; // a broadcaster silent for longer than this is treated as offline — keep it at least 2× the heartbeat, or followers get dropped
+    </script>
+
+    <script>
+    // ════════════════════════════════════════════════════
+    //  ✏️ STRINGS — every piece of text LiveRundown shows to users
+    // ════════════════════════════════════════════════════
+    // Translate the values (never the keys) to localize the whole app.
+    // {curly} placeholders are filled in at runtime — keep them, but feel free
+    // to move them around within the sentence to suit your language's grammar.
+    const STRINGS = {
+        lang:                   'en', // language code for the page (<html lang="…">)
+
+        // ── Startup ──
+        uploadPrompt:           'Searching for script.md... If not found, upload here:',
+
+        // ── Bottom-row buttons (label + icon) ──
+        btnSync:                'SYNC',
+        btnTimer:               'TIMER',     btnTimerIcon:     '⏱️',
+        btnNotes:               'NOTES',     btnNotesIcon:     '📓',
+        btnExport:              'EXPORT',    btnExportIcon:    '📄',
+        btnHideBar:             'HIDE BAR',  btnHideBarIcon:   '🙈',
+        btnChecklist:           'CHECK',     btnChecklistIcon: '📋',
+        btnNotify:              'NOTIFY',    btnNotifyIcon:    '🔔',
+        btnCollapseIcon:        '▶️',        // shown on the collapse toggle while the row is expanded (while collapsed it mirrors the sync icon)
+        revealIcon:             '👁️',        // tiny icon that brings back a hidden bar
+        settingsIcon:           '⚙️',
+
+        // ── Sync icons (SYNC button + collapsed toggle) ──
+        syncIconIdle:           '🔴',
+        syncIconBroadcasting:   '🔵',
+        syncIconFollowing:      '🟢',
+
+        // ── Hide Bar confirm ──
+        hideBarConfirm:         'Hide the bottom bar? Recover it with the eye icon. (bottom right)',
+        yes:                    'YES',
+
+        // ── Notepad ──
+        notepadTitle:           '📓 Notepad',
+        notepadExport:          'Export',
+        notepadExportTooltip:   'Export as .md',
+        notepadClose:           'Close',
+        notepadPlaceholder:     'Notes…',
+        notepadNothingToExport: 'Nothing to export yet.',
+        notepadExported:        '📄 Notes exported as {filename}',
+
+        // ── Settings ──
+        settingsTitle:          '⚙️ Settings',
+        settingsScale:          'Scale (%)',
+
+        // ── Checklist ──
+        checklistTitle:         '📋 Checklist',
+
+        // ── Notify ──
+        notifyPrompt:           'Notification text:',
+        notifyToast:            '🔔 {text}',
+
+        // ── Sync panel ──
+        syncTitle:              '🔄 Sync Options',
+        syncBroadcastToggle:    'Broadcast my index?',
+        syncNamePlaceholder:    'Type your name...',
+        syncAvailable:          'Available broadcasts:',
+        syncNoBroadcasts:       'No active broadcasts found.',
+        syncStatusIdle:         'Idle',
+        anonymousPrefix:        'Anonymous', // default broadcaster name = "<this> <random ANIMAL>"
+        syncFirebaseMissing:    '⚠️ Firebase not configured yet.',
+        syncDisconnected:       '⚠️ Broadcaster disconnected.',
+        syncAutoPaired:         '🔗 Auto-paired to {name}.',
+        syncNowFollowing:       '🔗 Now following {name}.',
+        syncStoppedFollowing:   '⛓️‍💥 Stopped following {name}.',
+
+        // ── Timer ──
+        timerTitle:             '⏱️ Timer',
+        timerStart:             'Start',
+        timerPause:             'Pause',
+        timerReset:             'Reset',
+        timerLog:               'Log',
+        timerDownload:          'Download TXT',
+        timerResetConfirm:      'Reset will also clear the log. Continue?',
+
+        // ── PDF export ──
+        exportTitle:            '📄 Export Options',
+        exportFontSize:         'Font size (pt)',
+        exportPageSize:         'Page size',
+        exportPageA4:           'A4',
+        exportPageLetter:       'US Letter',
+        exportConfirm:          'Export PDF',
+        exportNoScript:         '⚠️ No script loaded to export.',
+        exportBadFontSize:      '⚠️ Font size must be between {min} and {max}pt.',
+
+        // ── Downloaded file names ──
+        // Tokens: {YYYY} year · {YY} 2-digit year · {MM} month · {DD} day ·
+        //         {HH} hour (24h) · {mm} minute · {ss} second
+        // Include or leave out whichever you like. The file extension
+        // (.md / .txt / .pdf) is added automatically.
+        filenameNotes:          'notes-{YYYY}-{MM}-{DD}',
+        filenameLog:            'logs-{YYYY}-{MM}-{DD}',
+        filenamePDF:            'script-{YYYY}-{MM}-{DD}'
+    };
+    </script>
 
     <!-- Firebase SDKs — used for the realtime cross-device sync feature -->
     <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
@@ -145,7 +332,7 @@
             background: #333;
             display: flex;
             padding: 10px;
-            padding-right: 490px; /* room for the collapse toggle + HIDE BAR + EXPORT + NOTEPAD + TIMER + SYNC buttons */
+            padding-right: 425px; /* room for the button row — recomputed live by layoutBottomButtons() as buttons appear/disappear */
             gap: 5px;
             overflow-x: auto;
             border-top: 2px solid #222;
@@ -192,9 +379,12 @@
         }
 
         /* ── SYNC BUTTON ─────────────────────────────────────*/
+        /* Bottom-row buttons: the right: values below are just the initial
+           layout — layoutBottomButtons() repositions them live so optional
+           buttons (CHECK, NOTIFY) never leave gaps. */
         #sync-btn {
             position: fixed;
-            bottom: 10px; right: 10px;
+            bottom: 10px; right: 45px;
             width: 66px;
             display: flex;
             flex-direction: column;
@@ -220,8 +410,7 @@
             padding: 5px 5px 3px 5px;
             line-height: 1;
         }
-        #sync-btn.broadcasting #sync-btn-top { background: #1565c0; }
-        #sync-btn.following    #sync-btn-top { background: #2e7d32; }
+        /* Per-state top-half colors come from SYNC_COLORS (CONFIG), applied in updateSyncUI(). */
         #sync-btn:active { transform: scale(0.96); }
 
         /* ── SYNC PANEL ───────────────────────────────────────
@@ -265,7 +454,7 @@
            Opens the export panel (font size / page size / Export PDF). */
         #export-btn {
             position: fixed;
-            bottom: 10px; right: 238px;
+            bottom: 10px; right: 273px;
             width: 66px;
             display: flex;
             flex-direction: column;
@@ -299,7 +488,7 @@
            (unlike NOTIFY, a checklist is equally useful to anyone in the show). */
         #checklist-btn {
             position: fixed;
-            bottom: 10px; right: 390px;
+            bottom: 10px; right: 425px;
             width: 66px;
             display: none; /* flipped to 'flex' only if checklist.md loads successfully */
             flex-direction: column;
@@ -403,12 +592,12 @@
         /* ── NOTIFY BUTTON ─────────────────────────────────────
            Manual page: prompts for free text, then fires it exactly like a
            <NOTIFY> script line would (fireNotify()) — toasts locally and, if
-           broadcasting, relays to followers. Sits furthest out, past CHECKLIST.
-           Only shown
+           broadcasting, relays to followers. Sits furthest out, past CHECKLIST
+           (or directly past HIDE BAR when there's no checklist). Only shown
            while broadcasting — a listener has no use for sending a page. */
         #notify-btn {
             position: fixed;
-            bottom: 10px; right: 466px;
+            bottom: 10px; right: 501px;
             width: 66px;
             display: none; /* flipped to 'flex' only while syncState === 'broadcasting', see updateSyncUI() */
             flex-direction: column;
@@ -440,7 +629,7 @@
            The top (grey) half turns white while the timer is running. */
         #timer-btn {
             position: fixed;
-            bottom: 10px; right: 86px;
+            bottom: 10px; right: 121px;
             width: 66px;
             display: flex;
             flex-direction: column;
@@ -478,7 +667,7 @@
            mirroring how #timer-btn.running behaves. */
         #notepad-btn {
             position: fixed;
-            bottom: 10px; right: 162px;
+            bottom: 10px; right: 197px;
             width: 66px;
             display: flex;
             flex-direction: column;
@@ -639,7 +828,7 @@
            buttons for a clean, distraction-free view during a performance. */
         #hide-bar-btn {
             position: fixed;
-            bottom: 10px; right: 314px;
+            bottom: 10px; right: 349px;
             width: 66px;
             display: flex;
             flex-direction: column;
@@ -669,15 +858,15 @@
         /* ── BUTTON-GROUP COLLAPSE TOGGLE ──────────────────────
            A thin strip (not a full button like the other three): solid
            grey, no top/bottom split, single centered icon.
-           Expanded (default): sits left of HIDE BAR (right:275px), ▶️ icon
-           — click to collapse.
-           Collapsed: moves to the very right edge of the screen (right:10px),
-           🔴/🟢/🔵 icon mirroring the current sync state (same colors/logic
-           as updateSyncUI()) — click to expand.
-           When collapsed, hide-bar-btn / export-btn / sync-btn are hidden. */
+           Always the rightmost control (right:10px), expanded or collapsed,
+           so it never jumps around and stays reachable on narrow screens.
+           Expanded (default): ▶️ icon — click to collapse.
+           Collapsed: 🔴/🟢/🔵 icon mirroring the current sync state (same
+           icons as updateSyncUI()) — click to expand.
+           When collapsed, every other bottom-row button is hidden. */
         #btn-group-toggle {
             position: fixed;
-            bottom: 10px; right: 390px;
+            bottom: 10px; right: 10px;
             width: 25px; height: 66px;
             display: flex;
             align-items: center;
@@ -691,12 +880,11 @@
             line-height: 1;
             transition: transform 0.1s;
         }
-        #btn-group-toggle.collapsed { right: 10px; }
         #btn-group-toggle:active { transform: scale(0.96); }
 
         #hide-bar-confirm {
             position: fixed;
-            bottom: 90px; right: 370px;
+            bottom: 90px; right: 405px; /* kept next to HIDE BAR by layoutBottomButtons() */
             width: 200px;
             background: #2a2a2a;
             border-radius: 10px;
@@ -1186,7 +1374,7 @@
 
 <!-- Shown at startup until a script is loaded, either automatically (script.md) or via manual upload -->
 <div id="upload-container">
-    <p>Searching for script.md... If not found, upload here:</p>
+    <p data-str="uploadPrompt">Searching for script.md... If not found, upload here:</p>
     <input type="file" id="fileInput" accept=".md,.txt">
 </div>
 
@@ -1195,30 +1383,30 @@
 <!-- One block per character gets rendered here by initDashboard() / updateDashboard() -->
 <div id="dashboard"></div>
 
-<!-- ── BUTTON-GROUP COLLAPSE TOGGLE (always visible, far right) ──── -->
+<!-- ── BUTTON-GROUP COLLAPSE TOGGLE (always visible, rightmost — same spot expanded or collapsed) ──── -->
 <div id="btn-group-toggle">
-    <span id="btn-group-toggle-bottom">▶️</span>
+    <span id="btn-group-toggle-bottom" data-str="btnCollapseIcon">▶️</span>
 </div>
 
 <!-- ── HIDE BAR BUTTON ──────────────────────────── -->
 <div id="hide-bar-btn">
-    <div id="hide-bar-btn-top">HIDE BAR</div>
-    <div id="hide-bar-btn-bottom">🙈</div>
+    <div id="hide-bar-btn-top" data-str="btnHideBar">HIDE BAR</div>
+    <div id="hide-bar-btn-bottom" data-str="btnHideBarIcon">🙈</div>
 </div>
 
 <!-- ── HIDE BAR CONFIRM POPUP ───────────────────── -->
 <div id="hide-bar-confirm">
-    <div id="hide-bar-confirm-text">Hide the bottom bar? Recover it with the eye icon. (bottom right)</div>
-    <button id="hide-bar-confirm-yes">YES</button>
+    <div id="hide-bar-confirm-text" data-str="hideBarConfirm">Hide the bottom bar? Recover it with the eye icon. (bottom right)</div>
+    <button id="hide-bar-confirm-yes" data-str="yes">YES</button>
 </div>
 
 <!-- ── NOTEPAD WINDOW: draggable header, resizable corner, Quill editor inside ───── -->
 <div id="notepad-window">
     <div id="notepad-header">
-        <span>📓 Notepad</span>
+        <span data-str="notepadTitle">📓 Notepad</span>
         <div id="notepad-header-actions">
-            <button class="notepad-header-btn" id="notepad-export-btn" title="Export as .md">Export</button>
-            <button class="notepad-header-btn" id="notepad-close-btn" title="Close">✕</button>
+            <button class="notepad-header-btn" id="notepad-export-btn" data-str="notepadExport" data-str-title="notepadExportTooltip">Export</button>
+            <button class="notepad-header-btn" id="notepad-close-btn" data-str-title="notepadClose">✕</button>
         </div>
     </div>
     <div id="notepad-body">
@@ -1228,12 +1416,12 @@
 </div>
 
 <!-- ── SETTINGS BUTTON (top-right, page Scale for now) ──────────────────────── -->
-<div id="settings-btn">⚙️</div>
+<div id="settings-btn" data-str="settingsIcon">⚙️</div>
 <div id="settings-panel">
-    <div id="settings-panel-header">⚙️ Settings</div>
+    <div id="settings-panel-header" data-str="settingsTitle">⚙️ Settings</div>
     <div id="settings-panel-body">
         <div class="settings-row">
-            <span>Scale (%)</span>
+            <span data-str="settingsScale">Scale (%)</span>
             <input type="number" id="settings-scale-input" value="100" min="50" max="500" step="1">
         </div>
         <input type="range" id="settings-scale-slider" min="50" max="500" step="1" value="100">
@@ -1242,54 +1430,54 @@
 
 <!-- ── EXPORT BUTTON ──────────────────────────── -->
 <div id="export-btn">
-    <div id="export-btn-top">EXPORT</div>
-    <div id="export-btn-bottom">📄</div>
+    <div id="export-btn-top" data-str="btnExport">EXPORT</div>
+    <div id="export-btn-bottom" data-str="btnExportIcon">📄</div>
 </div>
 
 <!-- ── CHECKLIST BUTTON (hidden unless checklist.md was found at load) ──────────────────────────── -->
 <div id="checklist-btn">
-    <div id="checklist-btn-top">CHECK</div>
-    <div id="checklist-btn-bottom">📋</div>
+    <div id="checklist-btn-top" data-str="btnChecklist">CHECK</div>
+    <div id="checklist-btn-bottom" data-str="btnChecklistIcon">📋</div>
 </div>
 <div id="checklist-panel">
-    <div id="checklist-panel-header">📋 Checklist</div>
+    <div id="checklist-panel-header" data-str="checklistTitle">📋 Checklist</div>
     <div id="checklist-panel-body"></div>
 </div>
 
 <!-- ── NOTIFY BUTTON (manual page — broadcasting only; prompts for text, fires same as a <NOTIFY> script line) ──────────────────────────── -->
 <div id="notify-btn">
-    <div id="notify-btn-top">NOTIFY</div>
-    <div id="notify-btn-bottom">🔔</div>
+    <div id="notify-btn-top" data-str="btnNotify">NOTIFY</div>
+    <div id="notify-btn-bottom" data-str="btnNotifyIcon">🔔</div>
 </div>
 
 <!-- ── TIMER BUTTON (top half turns white while running) ──────────────────────────── -->
 <div id="timer-btn">
-    <div id="timer-btn-top">TIMER</div>
-    <div id="timer-btn-bottom">⏱️</div>
+    <div id="timer-btn-top" data-str="btnTimer">TIMER</div>
+    <div id="timer-btn-bottom" data-str="btnTimerIcon">⏱️</div>
 </div>
 
 <!-- ── NOTEPAD BUTTON (top half turns white while there's unsaved note content) ──────────────────────────── -->
 <div id="notepad-btn">
-    <div id="notepad-btn-top">NOTES</div>
-    <div id="notepad-btn-bottom">📓</div>
+    <div id="notepad-btn-top" data-str="btnNotes">NOTES</div>
+    <div id="notepad-btn-bottom" data-str="btnNotesIcon">📓</div>
 </div>
 
 <!-- ── SYNC BUTTON (color/icon updated live by updateSyncUI) ──────────────────────────── -->
 <div id="sync-btn" class="idle">
-    <div id="sync-btn-top">SYNC</div>
-    <div id="sync-btn-bottom">🔴</div>
+    <div id="sync-btn-top" data-str="btnSync">SYNC</div>
+    <div id="sync-btn-bottom" data-str="syncIconIdle">🔴</div>
 </div>
 
 <!-- ── REVEAL ICON (only visible when bar is hidden) ── -->
-<div id="reveal-btn">👁️</div>
+<div id="reveal-btn" data-str="revealIcon">👁️</div>
 
 <!-- ── SYNC PANEL: broadcast toggle, name field, list of other broadcasters to follow ───── -->
 <div id="sync-panel">
-    <div id="sync-panel-header">🔄 Sync Options</div>
+    <div id="sync-panel-header" data-str="syncTitle">🔄 Sync Options</div>
     <div id="sync-panel-body">
 
         <div class="sync-row">
-            <span>Broadcast my index?</span>
+            <span data-str="syncBroadcastToggle">Broadcast my index?</span>
             <label class="toggle-wrap" id="broadcast-toggle-wrap">
                 <input type="checkbox" id="broadcast-toggle">
                 <div class="toggle-track"></div>
@@ -1299,63 +1487,63 @@
 
         <!-- Only shown while broadcasting is on -->
         <div id="broadcast-name-row">
-            <input type="text" id="broadcast-name-input" placeholder="Type your name...">
+            <input type="text" id="broadcast-name-input" data-str-placeholder="syncNamePlaceholder" placeholder="Type your name...">
         </div>
 
         <div>
-            <div class="sync-label" style="margin-bottom: 8px;">Available broadcasts:</div>
+            <div class="sync-label" style="margin-bottom: 8px;" data-str="syncAvailable">Available broadcasts:</div>
             <!-- Populated by renderBroadcastsList() from live Firebase data -->
             <div id="broadcasts-list">
-                <div id="no-broadcasts-msg">No active broadcasts found.</div>
+                <div id="no-broadcasts-msg" data-str="syncNoBroadcasts">No active broadcasts found.</div>
             </div>
         </div>
 
     </div>
     <div id="sync-panel-footer">
         <div id="sync-status-indicator"></div>
-        <span id="sync-status-text">Idle</span>
+        <span id="sync-status-text" data-str="syncStatusIdle">Idle</span>
     </div>
 </div>
 
 <!-- ── TIMER PANEL: Start/Pause + Reset, expands to show the log block once >=1 log exists ── -->
 <div id="timer-panel">
-    <div id="timer-panel-header">⏱️ Timer</div>
+    <div id="timer-panel-header" data-str="timerTitle">⏱️ Timer</div>
     <div id="timer-panel-body">
         <div id="timer-display">00:00:00</div>
         <div class="timer-controls-row">
-            <button class="timer-btn-action" id="timer-start-pause">Start</button>
-            <button class="timer-btn-action" id="timer-reset">Reset</button>
+            <button class="timer-btn-action" id="timer-start-pause" data-str="timerStart">Start</button>
+            <button class="timer-btn-action" id="timer-reset" data-str="timerReset">Reset</button>
         </div>
         <div id="timer-log-section">
-            <div class="sync-label">Log</div>
+            <div class="sync-label" data-str="timerLog">Log</div>
             <div id="timer-log-block"></div>
-            <button id="timer-download-btn">Download TXT</button>
+            <button id="timer-download-btn" data-str="timerDownload">Download TXT</button>
         </div>
     </div>
 </div>
 
 <!-- ── TIMER RESET CONFIRM POPUP (only shown when logs exist) ──────────────────── -->
 <div id="timer-reset-confirm">
-    <div id="timer-reset-confirm-text">Reset will also clear the log. Continue?</div>
-    <button id="timer-reset-confirm-yes">YES</button>
+    <div id="timer-reset-confirm-text" data-str="timerResetConfirm">Reset will also clear the log. Continue?</div>
+    <button id="timer-reset-confirm-yes" data-str="yes">YES</button>
 </div>
 
 <!-- ── EXPORT PANEL: PDF font size / page size / trigger ────────────────────────────── -->
 <div id="export-panel">
-    <div id="export-panel-header">📄 Export Options</div>
+    <div id="export-panel-header" data-str="exportTitle">📄 Export Options</div>
     <div id="export-panel-body">
         <div class="export-row">
-            <span>Font size (pt)</span>
+            <span data-str="exportFontSize">Font size (pt)</span>
             <input type="number" id="export-font-size" value="12" min="6" max="24">
         </div>
         <div class="export-row">
-            <span>Page size</span>
+            <span data-str="exportPageSize">Page size</span>
             <select id="export-page-size">
-                <option value="A4">A4</option>
-                <option value="LETTER">US Letter</option>
+                <option value="A4" data-str="exportPageA4">A4</option>
+                <option value="LETTER" data-str="exportPageLetter">US Letter</option>
             </select>
         </div>
-        <button id="export-confirm-btn">Export PDF</button>
+        <button id="export-confirm-btn" data-str="exportConfirm">Export PDF</button>
     </div>
 </div>
 
@@ -1365,59 +1553,65 @@
 <script>
     // ════════════════════════════════════════════════════
     //  CORE VARIABLES
+    //  (all ✏️ admin-editable settings live in the CONFIG / STRINGS
+    //   blocks at the very top of <head>)
     // ════════════════════════════════════════════════════
 
-    // ✏️ Firebase project config used for the cross-device sync feature.
-    // If apiKey is left as the placeholder, sync stays disabled (see INIT below).
-    const FIREBASE_CONFIG = {
-        apiKey:            "YOUR_API_KEY",
-        authDomain:        "YOUR_PROJECT.firebaseapp.com",
-        databaseURL:       "https://YOUR_PROJECT-default-rtdb.europe-west1.firebasedatabase.app",
-        projectId:         "YOUR_PROJECT",
-        storageBucket:     "YOUR_PROJECT.appspot.com",
-        messagingSenderId: "YOUR_SENDER_ID",
-        appId:             "YOUR_APP_ID"
-    };
+    // ── CONFIG sanity check ─────────────────────────────────
+    // If an edit to the CONFIG or STRINGS block at the top of the file has a
+    // typo (missing comma, quote, etc.), that whole block fails to load and the
+    // app can't start. Say so on screen instead of silently hanging on
+    // "Searching for script.md…". (Plain English on purpose — STRINGS itself
+    // may be the block that's broken.)
+    (function checkConfigLoaded() {
+        const broken = [];
+        try { FIREBASE_CONFIG; BROADCAST_STALE_MS; } catch (e) { broken.push('CONFIG'); }
+        try { STRINGS; } catch (e) { broken.push('STRINGS'); }
+        if (!broken.length) return;
+        const box = document.getElementById('upload-container');
+        box.style.background = '#7f1d1d';
+        box.textContent = '⚠️ The ' + broken.join(' and ') + ' block at the top of index.html has an error ' +
+            '(often a missing comma or quote). Open the browser console (F12) to see the exact line.';
+        throw new Error('LiveRundown: ' + broken.join(' + ') + ' block failed to load — see the error above.');
+    })();
 
-    // ✏️ Markdown syntax markers recognized by the script parser.
-    const PIN_MARKER       = '<PIN>';       // "NAME <PIN>" pins a character to the front of the countdown order. Pins have to be declared at the very top of script.md, before any other lines. (invisible on the live page)
-    const PAGEBREAK_MARKER = '<PAGEBREAK>'; // its own line forces a hard page break in the PDF export (invisible on the live page)
-    const LOG_MARKER       = '<LOG>';       // prefix on any line — the rest of the line still parses normally (as dialogue/action/heading), but the line is also timestamped in the Timer's log when reached, while the timer is running. (invisible on the live page)
-    const NOTIFY_MARKER    = '<NOTIFY>';    // "<NOTIFY> message text" on its own line — fires a toast (via showToast(), same bubble as sync/export messages) to every connected device, including this one, the moment the line is reached (forward advances only — does NOT require the Timer to be running, unlike LOG). Broadcasts to followers over Firebase; on a standalone (non-broadcasting) device it only toasts locally. Invisible on the live page, same as PIN/PAGEBREAK/LOG.
+    // ── STRINGS helpers ─────────────────────────────────────
+    // t('key', { name: 'Fox' }) → STRINGS.key with {name} filled in.
+    // Falls back to the key itself if a translation is missing, so a typo in
+    // STRINGS shows up as visible text rather than "undefined".
+    function t(key, vars) {
+        let s = STRINGS[key];
+        if (s === undefined) s = key;
+        if (vars) s = s.replace(/\{(\w+)\}/g, (m, k) => (k in vars ? vars[k] : m));
+        return s;
+    }
 
-    // ✏️ Colors assigned to characters in order of first appearance (or PIN order).
-    const colorPalette = [
-        '#ff0000','#00aa00','#0000ff','#ff00ff','#ff8c00',
-        '#cccc00','#00cccc','#8a2be2','#ff1493','#00ced1',
-        '#adff2f','#888888','#1e90ff','#815129','#30703D',
-        '#000077','#C6A664','#924E7D','#cc4400'
-    ];
+    // Fills every static label in the HTML from STRINGS. Elements opt in with
+    // data-str (text), data-str-placeholder or data-str-title (attributes).
+    function applyStrings() {
+        document.documentElement.lang = STRINGS.lang || 'en';
+        document.querySelectorAll('[data-str]').forEach(el => { el.textContent = t(el.dataset.str); });
+        document.querySelectorAll('[data-str-placeholder]').forEach(el => { el.placeholder = t(el.dataset.strPlaceholder); });
+        document.querySelectorAll('[data-str-title]').forEach(el => { el.title = t(el.dataset.strTitle); });
+    }
+    applyStrings();
 
-    // ✏️ Countdown dashboard visual proximity warnings.
-    const SHOW_COUNTDOWN_WARNINGS = true; // master toggle for the black/red proximity coloring below. If false, dash counts stay in their normal look always.
-    const WARNING_THRESHOLD       = 5;    // lines-remaining cutoff for entering the "approaching" (black-on-white) state.
-    const FLASHING_EFFECTS        = true; // if true, a countdown of 0 or 1 flashes white-on-red/white-on-grey; if false, it's solid white-on-red (accessibility option).
-
-    // ✏️ Auto-pair: on page load, silently look for a live broadcast (same browser via 
-    // BroadcastChannel, or same network via matching public IP through Firebase) and 
-    // automatically sync to it. If there's more than a single broadcaster, it will not auto-pair.
-    // Safe to leave off (false) if you don't want this behavior.
-    const AUTO_PAIR = true;
-
-    // ✏️ Auto-collapse: when this device starts FOLLOWING another broadcaster
-    // (via sync), automatically collapse the bottom button row down to just the
-    // sync toggle — same as manually clicking the collapse arrow. Doesn't affect
-    // going idle or starting your own broadcast, and any panel/window that was
-    // already open (e.g. Notepad) stays open; only the row of small buttons collapses.
-    const AUTO_COLLAPSE_ON_FOLLOW = true;
-
-    // ✏️ Notepad shorthand keys: single-character keybinds that insert a formatted
-    // reference to a script line at the cursor while typing notes. Backtick refs the
-    // CURRENT line; tilde refs the most recent <LOG>-marked line reached. Set either
-    // to '' (empty string) to disable that shortcut entirely — the key then types
-    // normally with no special behavior.
-    const NOTEPAD_SHORTHAND_CURRENT_LINE_KEY = '`';
-    const NOTEPAD_SHORTHAND_LOG_LINE_KEY     = '~';
+    // Builds a download filename from one of the STRINGS.filename* templates,
+    // e.g. 'notes-{YYYY}-{MM}-{DD}' + '.md' → 'notes-2026-09-28.md'. Uses local
+    // time. Characters that aren't allowed in file names are replaced with '-'.
+    function formatFilename(template, ext) {
+        const d = new Date();
+        const pad = n => String(n).padStart(2, '0');
+        const tokens = {
+            YYYY: d.getFullYear(), YY: String(d.getFullYear()).slice(-2),
+            MM: pad(d.getMonth() + 1), DD: pad(d.getDate()),
+            HH: pad(d.getHours()), mm: pad(d.getMinutes()), ss: pad(d.getSeconds())
+        };
+        const name = (template || '').replace(/\{(YYYY|YY|MM|DD|HH|mm|ss)\}/g, (m, k) => tokens[k])
+                                     .replace(/[\\/:*?"<>|]/g, '-')
+                                     .trim();
+        return (name || `${tokens.YYYY}-${tokens.MM}-${tokens.DD}`) + ext; // blank template → just the date
+    }
 
     // Parsed script state — populated by parseScript().
     let charColors = {}, characters = [], scriptLines = [];
@@ -1439,16 +1633,11 @@
     const PDF_MONOLOGUE_LINE_HEIGHT = 1.35; // extra spacing between wrapped lines within the same block of dialogue text (pdfmake default is ~1.0)
 
     // Export panel state — remembered across exports in this session (resets on page reload).
-    let lastExportFontSize = PDF_BASE_FONT_SIZE;
-    let lastExportPageSize = 'A4';
+    let lastExportFontSize = EXPORT_DEFAULT_FONT_SIZE;
+    let lastExportPageSize = EXPORT_DEFAULT_PAGE_SIZE;
 
     // Sync feature state.
-    const ANIMALS = [
-        'Fox','Leopard','Tiger','Bear','Wolf','Eagle','Hawk',
-        'Owl','Lynx','Puma','Jaguar','Falcon','Raven','Cobra',
-        'Crane','Heron','Bison','Otter','Viper','Moose'
-    ];
-    let myName          = 'Anonymous ' + ANIMALS[Math.floor(Math.random() * ANIMALS.length)];
+    let myName          = t('anonymousPrefix') + ' ' + ANIMALS[Math.floor(Math.random() * ANIMALS.length)];
     let syncState        = 'idle';   // 'idle' | 'broadcasting' | 'following'
     let followingName    = null;
     let myBroadcastRef    = null;
@@ -1468,10 +1657,12 @@
     let broadcastsSnapshotReceived = false;// true once listenToBroadcasts() has real data
     let settingsPanelOpen = false;
     let checklistPanelOpen = false;
+    let checklistMarkdown = null;   // raw checklist.md text (null = no checklist this show) — see CHECKLIST below
+    let checklistState    = [];     // parallel array of booleans, one per checklist item, in document order
 
     // ── SCALE (page zoom) state ─────────────────────────────
     const SCALE_STORAGE_KEY = 'liverundown_scale';
-    let pageScale = 100; // percent, 50–500, persisted per-device via localStorage
+    let pageScale = SCALE_DEFAULT; // percent, SCALE_MIN–SCALE_MAX, persisted per-device via localStorage
 
 
     // Bottom-bar visibility state (Hide Bar feature).
@@ -1515,7 +1706,7 @@
         timerStartedAt = Date.now();
         document.getElementById('timer-btn').classList.add('running');
         const btn = document.getElementById('timer-start-pause');
-        btn.textContent = 'Pause';
+        btn.textContent = t('timerPause');
         btn.classList.add('is-pause');
         updateTimerDisplay();
         timerTickInterval = setInterval(updateTimerDisplay, 1000);
@@ -1528,7 +1719,7 @@
         timerStartedAt = null;
         document.getElementById('timer-btn').classList.remove('running');
         const btn = document.getElementById('timer-start-pause');
-        btn.textContent = 'Start';
+        btn.textContent = t('timerStart');
         btn.classList.remove('is-pause');
         clearInterval(timerTickInterval);
         timerTickInterval = null;
@@ -1582,12 +1773,11 @@
 
     function downloadLogTxt() {
         const content = logEntries.map(e => `${formatTimerMs(e.timestampMs)}  ${e.text}`).join('\n');
-        const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD — same convention as script-<date>.pdf
         const blob = new Blob([content], { type: 'text/plain' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `logs-${today}.txt`;
+        a.download = formatFilename(t('filenameLog'), '.txt');
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
@@ -1733,7 +1923,7 @@
 
     function exportScriptToPDF(fontSize, pageSize) {
         if (!scriptLines.length) {
-            showToast('⚠️ No script loaded to export.');
+            showToast(t('exportNoScript'));
             return;
         }
         const content = [];
@@ -1764,8 +1954,7 @@
             }
         };
 
-        const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
-        pdfMake.createPdf(docDefinition).download(`script-${today}.pdf`);
+        pdfMake.createPdf(docDefinition).download(formatFilename(t('filenamePDF'), '.pdf'));
     }
 
     function toggleExportPanel() {
@@ -1864,7 +2053,7 @@
     // script line (fireNotify handles the local toast + Firebase relay).
     document.getElementById('notify-btn').addEventListener('click', e => {
         e.stopPropagation();
-        const text = window.prompt('Notification text:');
+        const text = window.prompt(t('notifyPrompt'));
         if (text && text.trim()) fireNotify(text.trim());
     });
 
@@ -1875,7 +2064,7 @@
         const pageSize = document.getElementById('export-page-size').value;
 
         if (!Number.isFinite(fontSize) || fontSize < 6 || fontSize > 24) {
-            showToast('⚠️ Font size must be between 6 and 24pt.');
+            showToast(t('exportBadFontSize', { min: 6, max: 24 }));
             return;
         }
 
@@ -1892,13 +2081,7 @@
     function hideBottomBar() {
         barHidden = true;
         document.getElementById('dashboard').style.display = 'none';
-        document.getElementById('hide-bar-btn').style.display = 'none';
-        document.getElementById('export-btn').style.display = 'none';
-        document.getElementById('notepad-btn').style.display = 'none';
-        document.getElementById('timer-btn').style.display = 'none';
-        document.getElementById('sync-btn').style.display = 'none';
-        document.getElementById('notify-btn').style.display = 'none';
-        document.getElementById('checklist-btn').style.display = 'none'; // harmless if it was already 'none' (no checklist.md this show)
+        layoutBottomButtons(); // barHidden → hides every bottom-row button
         document.getElementById('btn-group-toggle').style.display = 'none';
         document.getElementById('hide-bar-confirm').style.display = 'none';
         syncPanelOpen = false;  // Also close any open panels — their trigger buttons are gone now.
@@ -1918,7 +2101,7 @@
         barHidden = false;
         document.getElementById('dashboard').style.display = 'flex';
         document.getElementById('btn-group-toggle').style.display = 'flex';
-        // Restore the 3 buttons only if the group wasn't left collapsed —
+        // Restore the buttons only if the group wasn't left collapsed —
         // setBtnGroupCollapsed() already knows how to show/hide them correctly.
         setBtnGroupCollapsed(btnGroupCollapsed);
         document.getElementById('reveal-btn').style.display = 'none';
@@ -1965,55 +2148,53 @@
     });
 
 
-    // ── BUTTON-GROUP COLLAPSE TOGGLE ──────────────────────
-    // Collapses HIDE BAR / EXPORT / SYNC into a single small button showing
-    // the current sync status color (🔴/🟢/🔵). Does not affect the sync
-    // connection itself — purely a UI declutter for mid-show use. Always
-    // starts expanded on page load (not persisted).
-    // Recomputes where the (expanded) collapse toggle strip sits, since NOTIFY
-    // (broadcasting-only) and CHECKLIST (only if checklist.md loaded) can each
-    // independently be absent — the toggle should hug whichever real button is
-    // currently furthest right, not assume a fixed max width. Collapsed
-    // position is always the fixed right:10px regardless (see CSS).
-    function repositionBtnGroupToggle() {
-        const toggle = document.getElementById('btn-group-toggle');
-        if (btnGroupCollapsed) return; // collapsed position is fixed in CSS, nothing to compute
-        const checklistVisible = document.getElementById('checklist-btn').style.display === 'flex';
-        const notifyVisible    = document.getElementById('notify-btn').style.display === 'flex';
-        let right;
-        if (notifyVisible)         right = 542; // past notify-btn (466), the leftmost of the two optional buttons
-        else if (checklistVisible) right = 466; // past checklist-btn (390)
-        else                       right = 390; // past hide-bar-btn (314), the previous rightmost fixed button
-        toggle.style.right = right + 'px';
+    // ── BUTTON-GROUP COLLAPSE TOGGLE + BOTTOM-ROW LAYOUT ──
+    // The collapse toggle is always the rightmost control (fixed in CSS at
+    // right:10px), so it never moves between states. Collapsing hides every
+    // other bottom-row button and shows the current sync status icon
+    // (🔴/🔵/🟢) on the toggle instead. Does not affect the sync connection
+    // itself — purely a UI declutter for mid-show use. Always starts expanded
+    // on page load (not persisted).
+
+    // Right-to-left order of the bottom-row buttons, starting just left of
+    // the collapse toggle. CHECK and NOTIFY are optional (checklist.md present
+    // / broadcasting) — they're simply skipped when absent, so there's never a
+    // gap where a missing button would have been.
+    const BOTTOM_ROW_BUTTONS = ['sync-btn', 'timer-btn', 'notepad-btn', 'export-btn', 'hide-bar-btn', 'checklist-btn', 'notify-btn'];
+    const BOTTOM_ROW_START   = 45; // px from the right edge: toggle (10 + 25 wide) + 10 gap
+    const BOTTOM_ROW_STEP    = 76; // px per button: 66 wide + 10 gap
+
+    function isBottomButtonAvailable(id) {
+        if (id === 'checklist-btn') return checklistMarkdown !== null;
+        if (id === 'notify-btn')    return syncState === 'broadcasting';
+        return true;
+    }
+
+    // Single source of truth for which bottom-row buttons are showing and where
+    // they sit. Call it whenever anything that affects the row changes
+    // (collapse, hide bar, sync state, checklist loaded).
+    function layoutBottomButtons() {
+        let right = BOTTOM_ROW_START;
+        BOTTOM_ROW_BUTTONS.forEach(id => {
+            const el = document.getElementById(id);
+            const visible = !barHidden && !btnGroupCollapsed && isBottomButtonAvailable(id);
+            el.style.display = visible ? 'flex' : 'none';
+            if (!visible) return;
+            el.style.right = right + 'px';
+            if (id === 'hide-bar-btn') document.getElementById('hide-bar-confirm').style.right = (right + 56) + 'px';
+            right += BOTTOM_ROW_STEP;
+        });
+        // Leave the dashboard's countdown blocks exactly enough room to scroll
+        // clear of whatever buttons are currently showing.
+        document.getElementById('dashboard').style.paddingRight = (right + 5) + 'px';
     }
 
     function setBtnGroupCollapsed(collapsed) {
         btnGroupCollapsed = collapsed;
-        const toggle = document.getElementById('btn-group-toggle');
         const toggleIcon = document.getElementById('btn-group-toggle-bottom');
 
-        document.getElementById('hide-bar-btn').style.display = collapsed ? 'none' : 'flex';
-        document.getElementById('export-btn').style.display   = collapsed ? 'none' : 'flex';
-        document.getElementById('notepad-btn').style.display  = collapsed ? 'none' : 'flex';
-        document.getElementById('timer-btn').style.display    = collapsed ? 'none' : 'flex';
-        document.getElementById('sync-btn').style.display     = collapsed ? 'none' : 'flex';
-        // NOTIFY/CHECKLIST each have their own separate visibility rule (broadcasting-only /
-        // checklist.md-present) layered on top of collapse — collapsing always hides them if
-        // they were showing, but expanding only restores them if that separate rule still holds.
-        document.getElementById('notify-btn').style.display =
-            collapsed ? 'none' : (syncState === 'broadcasting' ? 'flex' : 'none');
-        document.getElementById('checklist-btn').style.display =
-            collapsed ? 'none' : (checklistMarkdown !== null ? 'flex' : 'none');
-
-        toggle.classList.toggle('collapsed', collapsed);
-        toggleIcon.textContent = collapsed ? document.getElementById('sync-btn-bottom').textContent : '▶️';
-        // Collapsed position (right:10px) is set by the .collapsed CSS class —
-        // but an inline style.right always wins over a class selector, so any
-        // leftover inline value from repositionBtnGroupToggle() (called while
-        // expanded) must be cleared here, or the toggle gets stuck wherever it
-        // last sat instead of snapping to the corner.
-        if (collapsed) toggle.style.right = '';
-        else repositionBtnGroupToggle();
+        layoutBottomButtons();
+        toggleIcon.textContent = collapsed ? document.getElementById('sync-btn-bottom').textContent : t('btnCollapseIcon');
 
         // Collapsing hides the buttons that open these panels/popups — close
         // any that happen to be open so nothing is left stranded on screen.
@@ -2067,6 +2248,9 @@
         }
     }
 
+    // Paint the initial (idle) sync colors from SYNC_COLORS and lay out the button row.
+    updateSyncUI();
+
     // AUTO_PAIR: strictly a launch-time check (per design — no periodic re-checks).
     // Safe to call even if Firebase isn't configured: Tier 1 (BroadcastChannel) is
     // fully independent of Firebase, so same-browser autopair still works standalone.
@@ -2074,6 +2258,7 @@
 
     // Pre-fill the name field with the randomly generated default name
     document.getElementById('broadcast-name-input').value = myName;
+    document.getElementById('broadcast-name-input').maxLength = BROADCAST_NAME_MAX_LENGTH;
     document.getElementById('broadcast-name-input').addEventListener('change', onNameChange);
     document.getElementById('broadcast-name-input').addEventListener('keydown', e => e.stopPropagation());
     document.getElementById('broadcast-name-input').addEventListener('click',   e => e.stopPropagation());
@@ -2099,14 +2284,20 @@
 
     // Scale slider + number input — kept in sync with each other, both apply live
     document.getElementById('settings-scale-slider').addEventListener('input', e => {
-        applyScale(parseInt(e.target.value, 10) || 100);
+        applyScale(parseInt(e.target.value, 10) || SCALE_DEFAULT);
     });
     document.getElementById('settings-scale-input').addEventListener('change', e => {
-        applyScale(parseInt(e.target.value, 10) || 100);
+        applyScale(parseInt(e.target.value, 10) || SCALE_DEFAULT);
     });
     document.getElementById('settings-scale-input').addEventListener('keydown', e => e.stopPropagation());
     document.getElementById('settings-scale-input').addEventListener('click',   e => e.stopPropagation());
 
+    // Scale input/slider bounds come from CONFIG (SCALE_MIN / SCALE_MAX).
+    ['settings-scale-input', 'settings-scale-slider'].forEach(id => {
+        const el = document.getElementById(id);
+        el.min = SCALE_MIN;
+        el.max = SCALE_MAX;
+    });
     loadSavedScale();
 
     // Broadcast toggle checkbox
@@ -2130,8 +2321,7 @@
             .then(text => {
                 checklistMarkdown = text;
                 renderChecklist(text);
-                document.getElementById('checklist-btn').style.display = 'flex';
-                if (!btnGroupCollapsed) repositionBtnGroupToggle();
+                layoutBottomButtons(); // CHECK slots in without leaving a gap before NOTIFY
             })
             .catch(() => console.log('checklist.md not found — Checklist button stays hidden.'));
     };
@@ -2152,7 +2342,7 @@
                 const d = child.val();
                 if (!d) return;
                 // Filter stale (> 30 seconds since heartbeat)
-                if (now - (d.lastSeen || 0) > 30000) return;
+                if (now - (d.lastSeen || 0) > BROADCAST_STALE_MS) return;
                 // Don't list ourselves
                 if (syncState === 'broadcasting' && child.key === myName) return;
                 lastAvailable[child.key] = d;
@@ -2161,7 +2351,7 @@
             // Broadcaster we were following has gone offline
             if (syncState === 'following' && followingName && !lastAvailable[followingName]) {
                 setSyncState('idle');
-                showToast('⚠️ Broadcaster disconnected.');
+                showToast(t('syncDisconnected'));
             }
 
             renderBroadcastsList();
@@ -2229,7 +2419,7 @@
             listenChannel.close();
             if (syncState === 'idle') {
                 setSyncState('following', e.data.name);
-                showToast('🔗 Auto-paired to ' + e.data.name + '.');
+                showToast(t('syncAutoPaired', { name: displayName(e.data.name) }));
             }
         };
     }
@@ -2249,7 +2439,7 @@
                 const [name] = candidates[0];
                 if (syncState === 'idle') {
                     setSyncState('following', name);
-                    showToast('🔗 Auto-paired to ' + name + '.');
+                    showToast(t('syncAutoPaired', { name: displayName(name) }));
                 }
             })
             .catch(() => { /* no IP available — silently skip autopair */ });
@@ -2280,7 +2470,7 @@
             myBroadcastRef.onDisconnect().remove();  // auto-clean on tab close
             heartbeatTimer = setInterval(() => {
                 if (myBroadcastRef) myBroadcastRef.update({ lastSeen: Date.now() });
-            }, 15000);
+            }, BROADCAST_HEARTBEAT_MS);
             toggleEl.checked = true;
             nameRow.style.display = 'block';
             toggleWrap.classList.remove('disabled');
@@ -2328,7 +2518,7 @@
                 const n = snap.val();
                 if (n && n.ts && n.ts > lastNotifyTs) {
                     lastNotifyTs = n.ts;
-                    showToast('🔔 ' + n.text);
+                    showToast(t('notifyToast', { text: n.text }));
                 }
             });
             toggleEl.checked = false;
@@ -2348,15 +2538,33 @@
 
 
     // ── SYNC EVENT HANDLERS ──────────────────────────────
+    // Broadcaster names travel through Firebase to every other device, so they're
+    // treated as untrusted text everywhere they're shown (textContent only, never
+    // innerHTML). Our OWN name is also cleaned before it's used: Firebase paths
+    // can't contain . # $ [ ] or /, and the length is capped.
+    function cleanBroadcastName(raw) {
+        return String(raw || '')
+            .replace(/\s+/g, ' ')
+            .replace(/[.#$\[\]\/\u0000-\u001f\u007f]/g, '')
+            .trim()
+            .slice(0, BROADCAST_NAME_MAX_LENGTH);
+    }
+
+    // Display-only: shortens an (untrusted) name coming from another device.
+    function displayName(name) {
+        const s = String(name);
+        return s.length > BROADCAST_NAME_MAX_LENGTH ? s.slice(0, BROADCAST_NAME_MAX_LENGTH) + '…' : s;
+    }
+
     function onBroadcastToggle() {
         if (!firebaseReady) {
             document.getElementById('broadcast-toggle').checked = false;
-            showToast('⚠️ Firebase not configured yet.');
+            showToast(t('syncFirebaseMissing'));
             return;
         }
         const on = document.getElementById('broadcast-toggle').checked;
         if (on) {
-            const name = document.getElementById('broadcast-name-input').value.trim() || myName;
+            const name = cleanBroadcastName(document.getElementById('broadcast-name-input').value) || cleanBroadcastName(myName);
             document.getElementById('broadcast-name-input').value = name;
             setSyncState('broadcasting', name);
         } else {
@@ -2366,7 +2574,9 @@
 
     function onNameChange() {
         if (syncState !== 'broadcasting') return;
-        const newName = document.getElementById('broadcast-name-input').value.trim();
+        const input   = document.getElementById('broadcast-name-input');
+        const newName = cleanBroadcastName(input.value);
+        input.value = newName || myName; // show what's actually being used
         if (newName && newName !== myName) setSyncState('broadcasting', newName);
     }
 
@@ -2374,10 +2584,10 @@
         if (!firebaseReady) return;
         if (syncState === 'following' && followingName === name) {
             setSyncState('idle');
-            showToast('⛓️‍💥 Stopped following ' + name + '.');
+            showToast(t('syncStoppedFollowing', { name: displayName(name) }));
         } else {
             setSyncState('following', name);
-            showToast('🔗 Now following ' + name + '.');
+            showToast(t('syncNowFollowing', { name: displayName(name) }));
         }
     }
 
@@ -2390,31 +2600,25 @@
         const txt = document.getElementById('sync-status-text');
 
         btn.className = syncState;
+        const colors = SYNC_COLORS[syncState] || {};
+        document.getElementById('sync-btn-top').style.background = colors.button || '';
+        ind.style.background = colors.dot || '';
 
         if (syncState === 'idle') {
-            dot.textContent      = '🔴';
-            ind.style.background = '#cc2222';
-            txt.textContent      = 'Idle';
+            dot.textContent      = t('syncIconIdle');
+            txt.textContent      = t('syncStatusIdle');
         } else if (syncState === 'broadcasting') {
-            dot.textContent      = '🔵';
-            ind.style.background = '#1e88e5';
+            dot.textContent      = t('syncIconBroadcasting');
             txt.textContent      = myName;
         } else if (syncState === 'following') {
-            dot.textContent      = '🟢';
-            ind.style.background = '#43a047';
-            txt.textContent      = followingName;
+            dot.textContent      = t('syncIconFollowing');
+            txt.textContent      = displayName(followingName);
         }
 
         // NOTIFY is only useful to a broadcaster (a listener has nothing to
-        // page out to) — shown/hidden here, the one place sync state changes,
-        // rather than scattered across every place syncState could change.
-        // Respects collapse: if the group is currently collapsed, stays
-        // hidden regardless — setBtnGroupCollapsed re-applies this same rule
-        // when the group next expands.
-        if (!btnGroupCollapsed) {
-            document.getElementById('notify-btn').style.display = syncState === 'broadcasting' ? 'flex' : 'none';
-            repositionBtnGroupToggle();
-        }
+        // page out to) — re-laid-out here, the one place sync state changes.
+        // layoutBottomButtons() respects collapse / hidden bar on its own.
+        layoutBottomButtons();
 
         // Mirror the same status dot onto the collapsed group-toggle icon,
         // so the sync state stays glanceable even with the buttons hidden.
@@ -2427,17 +2631,24 @@
         const list  = document.getElementById('broadcasts-list');
         const names = Object.keys(lastAvailable);
         if (names.length === 0) {
-            list.innerHTML = '<div id="no-broadcasts-msg">No active broadcasts found.</div>';
+            list.innerHTML = '<div id="no-broadcasts-msg"></div>';
+            document.getElementById('no-broadcasts-msg').textContent = t('syncNoBroadcasts');
             return;
         }
-        list.innerHTML = names.map(n => {
-            const safe     = n.replace(/'/g, "\\'");
-            const selected = (syncState === 'following' && followingName === n) ? 'selected' : '';
-            return `<div class="broadcast-item ${selected}" onclick="onBroadcastItemClick('${safe}')">
-                        <span>${n}</span>
-                        <div class="broadcast-dot"></div>
-                    </div>`;
-        }).join('');
+        // Built element-by-element with textContent: a name is always shown as
+        // plain text, so a name containing HTML/script can never run on this device.
+        list.innerHTML = '';
+        names.forEach(n => {
+            const item = document.createElement('div');
+            item.className = 'broadcast-item' + ((syncState === 'following' && followingName === n) ? ' selected' : '');
+            const label = document.createElement('span');
+            label.textContent = displayName(n);
+            const dot = document.createElement('div');
+            dot.className = 'broadcast-dot';
+            item.append(label, dot);
+            item.addEventListener('click', () => onBroadcastItemClick(n));
+            list.appendChild(item);
+        });
     }
 
     function toggleSyncPanel() {
@@ -2461,11 +2672,11 @@
     }
 
     function showToast(msg) {
-        const t = document.getElementById('sync-toast');
-        t.textContent = msg;
-        t.classList.add('show');
+        const toast = document.getElementById('sync-toast');
+        toast.textContent = msg;
+        toast.classList.add('show');
         clearTimeout(toastTimer);
-        toastTimer = setTimeout(() => t.classList.remove('show'), 3000);
+        toastTimer = setTimeout(() => toast.classList.remove('show'), TOAST_DURATION_MS);
     }
 
     // Fires a <NOTIFY> (from a script line, or the manual 🔔 button) to every
@@ -2480,7 +2691,7 @@
     // time, nothing is appended or kept.
     function fireNotify(text) {
         if (!text) return;
-        showToast('🔔 ' + text);
+        showToast(t('notifyToast', { text }));
         if (myBroadcastRef) {
             myBroadcastRef.update({ notify: { text, ts: Date.now() } });
         }
@@ -2795,7 +3006,7 @@
     // A plain tap/click (no hold) does nothing at all, by design — there's
     // no click handler here, only press/hold/release ones.
     function initMyLinesGestures() {
-        const HOLD_MS = 3000, WAVE_INTERVAL_MS = 500;
+        const HOLD_MS = MY_LINES_HOLD_MS, WAVE_INTERVAL_MS = 500;
         characters.forEach(char => {
             const block = document.getElementById('dash-' + char);
             if (!block) return;
@@ -2938,7 +3149,7 @@
     // an acceptable tradeoff; unsupported browsers just keep the page at
     // their own native 100%/manual-zoom instead of silently misbehaving.
     function applyScale(percent) {
-        pageScale = Math.min(500, Math.max(50, percent));
+        pageScale = Math.min(SCALE_MAX, Math.max(SCALE_MIN, percent));
         document.documentElement.style.zoom = (pageScale / 100);
         document.getElementById('settings-scale-input').value = pageScale;
         document.getElementById('settings-scale-slider').value = pageScale;
@@ -2946,12 +3157,12 @@
     }
 
     function loadSavedScale() {
-        let saved = 100;
+        let saved = SCALE_DEFAULT;
         try {
             const raw = localStorage.getItem(SCALE_STORAGE_KEY);
             if (raw !== null) saved = parseInt(raw, 10);
-        } catch (e) { /* storage unavailable — fall back to 100 */ }
-        if (!Number.isFinite(saved)) saved = 100;
+        } catch (e) { /* storage unavailable — fall back to SCALE_DEFAULT */ }
+        if (!Number.isFinite(saved)) saved = SCALE_DEFAULT;
         applyScale(saved);
     }
 
@@ -2992,8 +3203,7 @@
     // is tracked only in a local array (checklistState), never written back
     // to Firebase or localStorage — a page reload always starts fresh from
     // whatever checklist.md currently says on disk.
-    let checklistMarkdown = null;   // raw text, kept so a reload of the PANEL (not the page) could re-render if ever needed
-    let checklistState    = [];     // parallel array of booleans, one per checklist item, in document order
+    // (checklistMarkdown / checklistState are declared with the other core state near the top.)
 
     function renderChecklist(markdown) {
         const body = document.getElementById('checklist-panel-body');
@@ -3104,7 +3314,7 @@
     function initNotepad() {
         notepadQuill = new Quill('#notepad-editor', {
             theme: 'snow',
-            placeholder: 'Notes…',
+            placeholder: t('notepadPlaceholder'),
             modules: {
                 toolbar: ['bold', 'italic', 'underline'],
                 history: { userOnly: true }
@@ -3131,6 +3341,9 @@
             if (fmt.underline) notepadQuill.format('underline', false);
             return false; // false = Quill's own keyboard module treats this as "handled", swallowing the keystroke
         });
+
+        // ── Markdown shortcuts: *italic*, **bold**, ***bold italic*** ──
+        if (NOTEPAD_MARKDOWN) notepadQuill.on('text-change', applyNotepadMarkdown);
 
         // ── Backtick / tilde shorthand: insert a formatted script-line reference ──
         if (NOTEPAD_SHORTHAND_CURRENT_LINE_KEY) {
@@ -3166,6 +3379,47 @@
         // window-level listener below, which already checks notepad focus.
 
         notepadQuill.root.setAttribute('spellcheck', 'true');
+    }
+
+    // Converts *italic*, **bold** and ***bold italic*** into real formatting the
+    // moment the closing asterisk(s) are typed. Only reacts to a single typed
+    // '*' (not pastes or our own edits). The opening marker can't be preceded
+    // by another '*', and the text inside can't start or end with a space —
+    // so "**bold*" keeps waiting for its second closing '*' instead of turning
+    // into italics, and stray math like "2 * 3 * 4" is left alone.
+    // (No regex lookbehind for the "not preceded by '*'" rule — older Safari can't parse it.)
+    const NOTEPAD_MARKDOWN_RE = /(\*{1,3})([^*\s](?:[^*\n]*[^*\s])?)\1$/;
+    function applyNotepadMarkdown(delta, oldDelta, source) {
+        if (source !== 'user') return;
+        let cursor = 0, typedStar = false;
+        for (const op of delta.ops) {
+            if (op.retain !== undefined) cursor += op.retain;
+            else if (op.insert === '*') { cursor += 1; typedStar = true; break; }
+            else if (op.insert !== undefined) return; // anything else inserted — not a lone '*' keystroke
+        }
+        if (!typedStar) return;
+
+        const before = notepadQuill.getText(0, cursor);
+        const lineStart = before.lastIndexOf('\n') + 1;
+        const lineText = before.slice(lineStart);
+        const m = lineText.match(NOTEPAD_MARKDOWN_RE);
+        if (!m || lineText[m.index - 1] === '*') return;
+
+        const markerLen  = m[1].length;
+        const contentLen = m[2].length;
+        const openAt     = lineStart + m.index;
+        const formats    = markerLen === 1 ? { italic: true }
+                         : markerLen === 2 ? { bold: true }
+                         : { bold: true, italic: true };
+
+        // Closing marker first, so the opening marker's index is still valid.
+        notepadQuill.deleteText(cursor - markerLen, markerLen, 'user');
+        notepadQuill.formatText(openAt + markerLen, contentLen, formats, 'user');
+        notepadQuill.deleteText(openAt, markerLen, 'user');
+        notepadQuill.setSelection(openAt + contentLen, 0, 'user');
+        // Don't let the next typed characters inherit the new formatting.
+        notepadQuill.format('bold', false, 'user');
+        notepadQuill.format('italic', false, 'user');
     }
 
     // Builds the "[idx] CHARACTER dialogue text: " (or action/cue variant) reference
@@ -3294,11 +3548,9 @@
         if (!notepadQuill) return;
         const delta = notepadQuill.getContents();
         const markdown = quillDeltaToMarkdown(delta).trim();
-        if (!markdown) { showToast('Nothing to export yet.'); return; }
+        if (!markdown) { showToast(t('notepadNothingToExport')); return; }
 
-        const today = new Date();
-        const pad = n => String(n).padStart(2, '0');
-        const filename = `notes-${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}.md`;
+        const filename = formatFilename(t('filenameNotes'), '.md');
 
         const blob = new Blob([markdown], { type: 'text/markdown' });
         const url = URL.createObjectURL(blob);
@@ -3314,7 +3566,7 @@
         // spirit as the Timer button's running/idle toggle.
         notepadHasContent = false;
         document.getElementById('notepad-btn').classList.remove('unsaved');
-        showToast('📄 Notes exported as ' + filename);
+        showToast(t('notepadExported', { filename }));
     }
     document.getElementById('notepad-export-btn').addEventListener('click', e => {
         e.stopPropagation();
