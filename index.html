@@ -66,6 +66,13 @@
     // automatically collapse the bottom button row down to just the collapse toggle 
     const AUTO_COLLAPSE_ON_FOLLOW = true;
 
+    // ✏️ Right-to-left: set to true for RTL languages (Hebrew, Arabic, …). Mirrors the
+    // interface (buttons, panels, notifications) and sets each script line's direction
+    // from its own text. The PDF export mirrors its layout too, but can't yet typeset
+    // Hebrew/Arabic text itself (see DETAILS.md). Remember to translate the STRINGS
+    // block below as well.
+    const RTL = false;
+
     // ✏️ Notepad shorthand keys: single-character keybinds that insert a formatted
     // reference to a script line at the cursor while typing notes. Backtick refs the
     // CURRENT line; tilde refs the most recent <LOG>-marked line reached. Set either
@@ -89,6 +96,10 @@
 
     // ✏️ Timings (all in milliseconds).
     const TOAST_DURATION_MS      = 3000;  // how long toast notifications stay on screen
+    const NOTIFY_TIMEOUT_MS      = 60000; // a NOTIFY stays until dismissed (X) or this long — prompters can't tap, so it must expire on its own
+    const NOTIFY_MAX_VISIBLE     = 3;     // NOTIFYs shown at once; any more wait in a queue and appear as earlier ones close
+    const HANDOVER_OFFER_TIMEOUT_MS = 30000;  // how long a handover offer waits for Accept/Decline before it lapses
+    const HANDOVER_POINTER_TTL_MS   = 120000; // how long an accepted handover keeps redirecting followers who reconnect late
     const MY_LINES_HOLD_MS       = 3000;  // how long to press-and-hold an actor's dashboard block to toggle My Lines
     const BROADCAST_HEARTBEAT_MS = 15000; // how often a broadcaster pings Firebase to say it's still live
     const BROADCAST_NAME_MAX_LENGTH = 40; // longest broadcaster name allowed (longer names from other devices are cut short on display)
@@ -124,6 +135,10 @@
         syncIconIdle:           '🔴',
         syncIconBroadcasting:   '🔵',
         syncIconFollowing:      '🟢',
+        syncIconOffline:        '🟠', // shown instead of the icon above while the connection is down
+        syncOfflineSuffix:      ' (offline)',
+        syncOffline:            '⚠️ Connection lost — the script may be out of date.',
+        syncReconnected:        '✅ Reconnected.',
 
         // ── Hide Bar confirm ──
         hideBarConfirm:         'Hide the bottom bar? Recover it with the eye icon. (bottom right)',
@@ -148,6 +163,7 @@
         // ── Notify ──
         notifyPrompt:           'Notification text:',
         notifyToast:            '🔔 {text}',
+        notifyDismiss:          'Dismiss',
 
         // ── Sync panel ──
         syncTitle:              '🔄 Sync Options',
@@ -162,6 +178,19 @@
         syncAutoPaired:         '🔗 Auto-paired to {name}.',
         syncNowFollowing:       '🔗 Now following {name}.',
         syncStoppedFollowing:   '⛓️‍💥 Stopped following {name}.',
+
+        // ── Handover ──
+        handoverBtn:            'Handover',
+        handoverWaiting:        'Waiting…',
+        handoverOfferSent:      '🔀 Handover offered to {name}.',
+        handoverOfferText:      '🔀 {name} wants to hand their broadcast over to you.',
+        handoverAccept:         'Accept',
+        handoverDecline:        'Decline',
+        handoverDeclined:       '⚠️ {name} declined the handover.',
+        handoverNoResponse:     '⚠️ No response from {name}.',
+        handoverGone:           '⚠️ {name} is no longer broadcasting.',
+        handoverDone:           '🔀 Handed over to {name}.',
+        handoverFollowed:       '🔀 {from} handed over to {to} — now following {to}.',
 
         // ── Timer ──
         timerTitle:             '⏱️ Timer',
@@ -332,7 +361,7 @@
             background: #333;
             display: flex;
             padding: 10px;
-            padding-right: 425px; /* room for the button row — recomputed live by layoutBottomButtons() as buttons appear/disappear */
+            padding-inline-end: 425px; /* room for the button row — recomputed live by layoutBottomButtons() as buttons appear/disappear */
             gap: 5px;
             overflow-x: auto;
             border-top: 2px solid #222;
@@ -384,7 +413,7 @@
            buttons (CHECK, NOTIFY) never leave gaps. */
         #sync-btn {
             position: fixed;
-            bottom: 10px; right: 45px;
+            bottom: 10px; inset-inline-end: 45px;
             width: 66px;
             display: flex;
             flex-direction: column;
@@ -418,7 +447,7 @@
            other active broadcasts to follow. */
         #sync-panel {
             position: fixed;
-            bottom: 90px; right: 10px;
+            bottom: 90px; inset-inline-end: 10px;
             width: 280px;
             background: #2a2a2a;
             border-radius: 10px;
@@ -454,7 +483,7 @@
            Opens the export panel (font size / page size / Export PDF). */
         #export-btn {
             position: fixed;
-            bottom: 10px; right: 273px;
+            bottom: 10px; inset-inline-end: 273px;
             width: 66px;
             display: flex;
             flex-direction: column;
@@ -488,7 +517,7 @@
            (unlike NOTIFY, a checklist is equally useful to anyone in the show). */
         #checklist-btn {
             position: fixed;
-            bottom: 10px; right: 425px;
+            bottom: 10px; inset-inline-end: 425px;
             width: 66px;
             display: none; /* flipped to 'flex' only if checklist.md loads successfully */
             flex-direction: column;
@@ -522,7 +551,7 @@
            re-fetches checklist.md fresh and everything starts unchecked. */
         #checklist-panel {
             position: fixed;
-            bottom: 90px; right: 100px;
+            bottom: 90px; inset-inline-end: 100px;
             width: 300px;
             max-height: 60vh;
             background: #2a2a2a;
@@ -597,7 +626,7 @@
            while broadcasting — a listener has no use for sending a page. */
         #notify-btn {
             position: fixed;
-            bottom: 10px; right: 501px;
+            bottom: 10px; inset-inline-end: 501px;
             width: 66px;
             display: none; /* flipped to 'flex' only while syncState === 'broadcasting', see updateSyncUI() */
             flex-direction: column;
@@ -629,7 +658,7 @@
            The top (grey) half turns white while the timer is running. */
         #timer-btn {
             position: fixed;
-            bottom: 10px; right: 121px;
+            bottom: 10px; inset-inline-end: 121px;
             width: 66px;
             display: flex;
             flex-direction: column;
@@ -667,7 +696,7 @@
            mirroring how #timer-btn.running behaves. */
         #notepad-btn {
             position: fixed;
-            bottom: 10px; right: 197px;
+            bottom: 10px; inset-inline-end: 197px;
             width: 66px;
             display: flex;
             flex-direction: column;
@@ -705,7 +734,7 @@
            been logged during the current running session. */
         #timer-panel {
             position: fixed;
-            bottom: 90px; right: 100px;
+            bottom: 90px; inset-inline-end: 100px;
             width: 260px;
             background: #2a2a2a;
             border-radius: 10px;
@@ -793,7 +822,7 @@
            since Reset would otherwise silently discard them. */
         #timer-reset-confirm {
             position: fixed;
-            bottom: 90px; right: 100px;
+            bottom: 90px; inset-inline-end: 100px;
             width: 220px;
             background: #2a2a2a;
             border-radius: 10px;
@@ -828,7 +857,7 @@
            buttons for a clean, distraction-free view during a performance. */
         #hide-bar-btn {
             position: fixed;
-            bottom: 10px; right: 349px;
+            bottom: 10px; inset-inline-end: 349px;
             width: 66px;
             display: flex;
             flex-direction: column;
@@ -866,7 +895,7 @@
            When collapsed, every other bottom-row button is hidden. */
         #btn-group-toggle {
             position: fixed;
-            bottom: 10px; right: 10px;
+            bottom: 10px; inset-inline-end: 10px;
             width: 25px; height: 66px;
             display: flex;
             align-items: center;
@@ -884,7 +913,7 @@
 
         #hide-bar-confirm {
             position: fixed;
-            bottom: 90px; right: 405px; /* kept next to HIDE BAR by layoutBottomButtons() */
+            bottom: 90px; inset-inline-end: 405px; /* kept next to HIDE BAR by layoutBottomButtons() */
             width: 200px;
             background: #2a2a2a;
             border-radius: 10px;
@@ -1069,7 +1098,7 @@
         /* ── REVEAL ICON ─────────────────────────────────────── */
         #reveal-btn {
             position: fixed;
-            bottom: 6px; right: 6px;
+            bottom: 6px; inset-inline-end: 6px;
             width: 22px; height: 22px;
             display: none;
             align-items: center;
@@ -1194,7 +1223,7 @@
            Popup with font size / page size controls and the Export PDF button. */
         #export-panel {
             position: fixed;
-            bottom: 90px; right: 100px;
+            bottom: 90px; inset-inline-end: 100px;
             width: 240px;
             background: #2a2a2a;
             border-radius: 10px;
@@ -1262,7 +1291,7 @@
            the page-scale control (CSS zoom, localStorage-persisted). */
         #settings-btn {
             position: fixed;
-            top: 10px; right: 10px;
+            top: 10px; inset-inline-end: 10px;
             width: 34px; height: 34px;
             display: flex;
             align-items: center;
@@ -1279,7 +1308,7 @@
         #settings-btn:hover { opacity: 1; }
         #settings-panel {
             position: fixed;
-            top: 50px; right: 10px;
+            top: 50px; inset-inline-end: 10px;
             width: 240px;
             background: #2a2a2a;
             border-radius: 10px;
@@ -1328,7 +1357,7 @@
            Small transient notification bubble (errors, sync status changes). */
         #sync-toast {
             position: fixed;
-            bottom: 96px; right: 10px;
+            bottom: 96px; inset-inline-end: 10px;
             background: #3a3a3a;
             border: 1px solid #555;
             color: white;
@@ -1341,6 +1370,75 @@
             transition: opacity 0.3s;
         }
         #sync-toast.show { opacity: 1; }
+
+        /* ── NOTIFY STACK ─────────────────────────────────────
+           Persistent NOTIFY cards (unlike the transient toast above): each stays
+           until its X is tapped or NOTIFY_TIMEOUT_MS passes. Sits above #sync-toast.
+           The wrapper ignores pointer events so it never blocks the script; only
+           the cards themselves are tappable. */
+        #notify-stack {
+            position: fixed;
+            bottom: 140px; inset-inline-end: 10px;
+            display: flex; flex-direction: column; gap: 8px;
+            max-width: min(360px, calc(100vw - 20px));
+            z-index: 501;
+            pointer-events: none;
+        }
+        .notify-item {
+            position: relative;
+            overflow: hidden;
+            pointer-events: auto;
+            background: #3a3a3a;
+            border: 1px solid #555;
+            color: white;
+            padding: 10px 14px 13px;
+            padding-inline-end: 46px;
+            border-radius: 8px;
+            font-size: 14px;
+            overflow-wrap: anywhere;
+        }
+        .notify-dismiss {
+            position: absolute;
+            top: 0; inset-inline-end: 0;
+            width: 44px; height: 44px;
+            background: none; border: none;
+            color: white; font-size: 22px; line-height: 1;
+            cursor: pointer;
+        }
+        .notify-timer {
+            position: absolute;
+            inset-inline-start: 0; bottom: 0;
+            height: 3px; width: 100%;
+            background: #ffd400;
+            transform-origin: left;
+            animation: notify-shrink linear forwards;
+        }
+        html[dir="rtl"] .notify-timer { transform-origin: right; }
+        @keyframes notify-shrink { to { transform: scaleX(0); } }
+
+        /* Handover offers reuse the NOTIFY card: pinned above the notifications,
+           outlined in yellow, with Accept / Decline instead of an X. */
+        .notify-item.handover { border-color: #ffd400; padding-inline-end: 14px; }
+        .handover-actions { display: flex; gap: 8px; margin-top: 8px; }
+        .handover-actions button {
+            flex: 1;
+            padding: 8px 0;
+            border: none; border-radius: 6px;
+            font-size: 14px; font-weight: bold; color: white;
+            cursor: pointer;
+        }
+        .handover-accept  { background: #2e7d32; }
+        .handover-decline { background: #6a2a2a; }
+        /* "Handover" button that replaces the green dot in a broadcaster's list */
+        .broadcast-handover-btn {
+            flex-shrink: 0;
+            padding: 6px 12px;
+            border: none; border-radius: 6px;
+            background: #1565c0; color: white;
+            font-size: 12px; font-weight: bold;
+            cursor: pointer;
+        }
+        .broadcast-handover-btn:disabled { opacity: 0.5; cursor: default; }
 
         /* ── GITHUB CREDIT ────────────────────────────────────
            Small, unobtrusive link pinned to the bottom-right of the
@@ -1550,6 +1648,9 @@
 <!-- Transient notification bubble, driven by showToast() -->
 <div id="sync-toast"></div>
 
+<!-- Persistent NOTIFY cards (stack of NOTIFY_MAX_VISIBLE, rest queued), driven by showNotifyToast() -->
+<div id="notify-stack"></div>
+
 <script>
     // ════════════════════════════════════════════════════
     //  CORE VARIABLES
@@ -1586,10 +1687,17 @@
         return s;
     }
 
+    // In RTL mode each script line picks its own direction from its first strong
+    // character (dir="auto"), so a Hebrew/Arabic line reads right-to-left while an
+    // English line — a cue name, a stage direction — keeps its normal left-to-right
+    // order instead of having its punctuation and brackets flipped.
+    const BIDI_AUTO = RTL ? ' dir="auto"' : '';
+
     // Fills every static label in the HTML from STRINGS. Elements opt in with
     // data-str (text), data-str-placeholder or data-str-title (attributes).
     function applyStrings() {
         document.documentElement.lang = STRINGS.lang || 'en';
+        document.documentElement.dir  = RTL ? 'rtl' : 'ltr';
         document.querySelectorAll('[data-str]').forEach(el => { el.textContent = t(el.dataset.str); });
         document.querySelectorAll('[data-str-placeholder]').forEach(el => { el.placeholder = t(el.dataset.strPlaceholder); });
         document.querySelectorAll('[data-str-title]').forEach(el => { el.title = t(el.dataset.strTitle); });
@@ -1643,12 +1751,19 @@
     let myBroadcastRef    = null;
     let followRef         = null;
     let notifyRef         = null;
+    let offerRef          = null;   // our node's handoverOffer — someone offering us their broadcast
+    let replyRef          = null;   // our node's handoverReply — an offer's recipient declining
+    let handoverWatchRef  = null;   // handovers/<myName> — the pointer written when our offer is accepted
+    let pendingOffer      = null;   // { to, ts, timer } — the one handover offer we currently have out
+    let lastOfferKey      = null;   // from:ts of the last offer we showed, so a re-fired listener can't repeat it
+    let lastHandovers     = {};     // handovers/ from Firebase: { <old broadcaster>: { to, ts } }
     let heartbeatTimer    = null;
     let firebaseReady     = false;
     let db                = null;
     let syncPanelOpen     = false;
     let exportPanelOpen   = false;
     let lastAvailable     = {};
+    let firebaseConnected = null;   // null = not reported yet; then true/false from Firebase's .info/connected
     let toastTimer        = null;
     let pairChannel       = null;   // BroadcastChannel — same-browser instant pairing
     let myPublicIP        = null;  // fetched once, only if/when we start broadcasting
@@ -1875,6 +1990,9 @@
         paddingBottom: () => 0
     };
 
+    // Hebrew, Arabic, Syriac, Thaana + their presentation forms
+    const PDF_RTL_CHARS = /[֐-ࣿיִ-﷿ﹰ-﻿]/;
+
     // A dialogue line becomes 1+ pdfmake content blocks (>1 only if the line
     // was too long to safely fit a single page and had to be manually split;
     // in that case each chunk repeats the colored tag, as if it were a new line).
@@ -1884,23 +2002,27 @@
         const tagHeight = PDF_BASE_TAG_HEIGHT * scale;
         const padV = 8 * scale, padH = 12 * scale;
         const chunks = splitDialogueForPDF(dialogue, fontSize);
-        return chunks.map(chunk => ({
-            table: {
-                widths: [tagWidth, '*'],
-                dontBreakRows: true, // keep each card atomic -> orphan/widow-safe like Word
-                body: [[
-                    pdfTagCell(actors, fontSize, tagWidth, tagHeight),
-                    {
-                        text: parseItalicSegments(chunk).map(seg => ({ text: seg.text, italics: seg.italic, color: '#000000' })),
-                        fontSize: fontSize,
-                        lineHeight: PDF_MONOLOGUE_LINE_HEIGHT, // extra breathing room between wrapped lines of the same block
-                        margin: [padH, padV, 0, padV]
-                    }
-                ]]
-            },
-            layout: PDF_NO_BORDER_LAYOUT,
-            margin: [0, 0, 0, 8 * scale]
-        }));
+        return chunks.map(chunk => {
+            const tagCell  = pdfTagCell(actors, fontSize, tagWidth, tagHeight);
+            const textCell = {
+                text: parseItalicSegments(chunk).map(seg => ({ text: seg.text, italics: seg.italic, color: '#000000' })),
+                fontSize: fontSize,
+                lineHeight: PDF_MONOLOGUE_LINE_HEIGHT, // extra breathing room between wrapped lines of the same block
+                // RTL: the tag moves to the right edge, so the text's gap sits on its right
+                margin: RTL ? [0, padV, padH, padV] : [padH, padV, 0, padV],
+                // same per-line rule as the on-screen dir="auto": RTL script hugs the right
+                alignment: RTL && PDF_RTL_CHARS.test(chunk) ? 'right' : 'left'
+            };
+            return {
+                table: {
+                    widths: RTL ? ['*', tagWidth] : [tagWidth, '*'],
+                    dontBreakRows: true, // keep each card atomic -> orphan/widow-safe like Word
+                    body: [RTL ? [textCell, tagCell] : [tagCell, textCell]]
+                },
+                layout: PDF_NO_BORDER_LAYOUT,
+                margin: [0, 0, 0, 8 * scale]
+            };
+        });
     }
 
     // Action/scene lines (e.g. [SCENE...], (stage direction)) get the same
@@ -1946,8 +2068,8 @@
             footer: function (currentPage) {
                 return {
                     text: String(currentPage),
-                    alignment: 'right',
-                    margin: [0, 0, 30, 10],
+                    alignment: RTL ? 'left' : 'right',
+                    margin: RTL ? [30, 0, 0, 10] : [0, 0, 30, 10],
                     fontSize: 10,
                     color: '#444444'
                 };
@@ -2180,13 +2302,13 @@
             const visible = !barHidden && !btnGroupCollapsed && isBottomButtonAvailable(id);
             el.style.display = visible ? 'flex' : 'none';
             if (!visible) return;
-            el.style.right = right + 'px';
-            if (id === 'hide-bar-btn') document.getElementById('hide-bar-confirm').style.right = (right + 56) + 'px';
+            el.style.insetInlineEnd = right + 'px';
+            if (id === 'hide-bar-btn') document.getElementById('hide-bar-confirm').style.insetInlineEnd = (right + 56) + 'px';
             right += BOTTOM_ROW_STEP;
         });
         // Leave the dashboard's countdown blocks exactly enough room to scroll
         // clear of whatever buttons are currently showing.
-        document.getElementById('dashboard').style.paddingRight = (right + 5) + 'px';
+        document.getElementById('dashboard').style.paddingInlineEnd = (right + 5) + 'px';
     }
 
     function setBtnGroupCollapsed(collapsed) {
@@ -2348,6 +2470,9 @@
                 lastAvailable[child.key] = d;
             });
 
+            // Broadcaster we follow handed over to someone else: follow them instead
+            followHandoverRedirect();
+
             // Broadcaster we were following has gone offline
             if (syncState === 'following' && followingName && !lastAvailable[followingName]) {
                 setSyncState('idle');
@@ -2364,6 +2489,45 @@
                 if (pendingIPAutoPair) { pendingIPAutoPair = false; tryAutoPairViaIP(); }
             }
         });
+
+        // Connection state. The first report just records it (no toast); after that,
+        // a change is announced — but only to devices actually syncing.
+        db.ref('.info/connected').on('value', snapshot => {
+            const connected = snapshot.val() === true;
+            const first = firebaseConnected === null;
+            if (connected === firebaseConnected) return;
+            firebaseConnected = connected;
+            if (!first && syncState !== 'idle') showToast(t(connected ? 'syncReconnected' : 'syncOffline'));
+            updateSyncUI();
+        });
+
+        // Accepted handovers: handovers/<old broadcaster> = { to, ts }. Kept apart
+        // from broadcasts/ because the old broadcaster's node is deleted the moment
+        // it stops, and a follower that was briefly offline still needs to find out
+        // where everyone went.
+        db.ref('handovers').on('value', snapshot => {
+            lastHandovers = snapshot.val() || {};
+            followHandoverRedirect();
+        });
+    }
+
+    // Follower side of a handover. If the broadcaster we follow has an accepted,
+    // still-fresh handover pointer, switch to the new broadcaster. Follows chains
+    // (A→B→C) up to a small hop limit so a loop can't spin forever.
+    // A pointer older than the broadcaster's current session is ignored (`started`),
+    // so re-using a name after handing over doesn't redirect its new followers.
+    function followHandoverRedirect() {
+        for (let hops = 0; hops < 5 && syncState === 'following' && followingName; hops++) {
+            const h = lastHandovers[followingName];
+            if (!h || !h.to || h.to === followingName) return;
+            if (Date.now() - h.ts > HANDOVER_POINTER_TTL_MS) return;
+            const cur = lastAvailable[followingName];
+            if (cur && cur.started && h.ts < cur.started) return;
+            if (!lastAvailable[h.to]) return;   // new broadcaster isn't live — normal "disconnected" handling applies
+            const from = followingName;
+            setSyncState('following', h.to);
+            showToast(t('handoverFollowed', { from: displayName(from), to: displayName(h.to) }));
+        }
     }
 
     // ── AUTO_PAIR: Tier 1 (BroadcastChannel, same browser) ──
@@ -2454,6 +2618,11 @@
         clearInterval(heartbeatTimer); heartbeatTimer = null;
         if (followRef) { followRef.off(); followRef = null; }
         if (notifyRef) { notifyRef.off(); notifyRef = null; }
+        if (offerRef) { offerRef.off(); offerRef = null; }
+        if (replyRef) { replyRef.off(); replyRef = null; }
+        if (handoverWatchRef) { handoverWatchRef.off(); handoverWatchRef = null; }
+        clearPendingOffer();
+        document.querySelectorAll('#notify-stack .handover').forEach(el => el.remove()); // offers only make sense while broadcasting
 
         syncState     = newState;
         followingName = null;
@@ -2466,8 +2635,9 @@
         if (newState === 'broadcasting') {
             myName         = name;
             myBroadcastRef = db.ref('broadcasts/' + name);
-            myBroadcastRef.set({ index: currentIndex, lastSeen: Date.now() });
+            myBroadcastRef.set({ index: currentIndex, lastSeen: Date.now(), started: Date.now() });
             myBroadcastRef.onDisconnect().remove();  // auto-clean on tab close
+            listenForHandover(name);
             heartbeatTimer = setInterval(() => {
                 if (myBroadcastRef) myBroadcastRef.update({ lastSeen: Date.now() });
             }, BROADCAST_HEARTBEAT_MS);
@@ -2518,7 +2688,7 @@
                 const n = snap.val();
                 if (n && n.ts && n.ts > lastNotifyTs) {
                     lastNotifyTs = n.ts;
-                    showToast(t('notifyToast', { text: n.text }));
+                    showNotifyToast(t('notifyToast', { text: n.text }));
                 }
             });
             toggleEl.checked = false;
@@ -2592,6 +2762,148 @@
     }
 
 
+    // ── HANDOVER ─────────────────────────────────────────
+    // A broadcaster (A) offers their followers to another live broadcaster (B):
+    //   1. A writes broadcasts/B/handoverOffer = { from, ts }. Nothing moves yet.
+    //   2. B sees an Accept / Decline card. Only A's own followers are ever
+    //      affected, so an unwanted offer landing on a different rehearsal is
+    //      harmless — they just decline or ignore it.
+    //   3a. Accept: B adopts A's current line (so nobody jumps), then writes
+    //       handovers/A = { to: B, ts }. A's followers see that and follow B; A
+    //       sees it too and stops broadcasting.
+    //   3b. Decline: B writes broadcasts/A/handoverReply, A gets a toast.
+    //   No answer within HANDOVER_OFFER_TIMEOUT_MS: the offer lapses on both ends.
+    // Offers/replies are only ever written to a broadcaster that's currently
+    // listed as live, so a vanished broadcaster never leaves a stray node behind.
+
+    function clearPendingOffer() {
+        if (pendingOffer) clearTimeout(pendingOffer.timer);
+        pendingOffer = null;
+    }
+
+    // Sender side: the "Handover" button next to another broadcaster's name.
+    function onHandoverClick(to) {
+        if (syncState !== 'broadcasting' || pendingOffer || !lastAvailable[to]) return;
+        const ts = Date.now();
+        db.ref('broadcasts/' + to + '/handoverOffer').set({ from: myName, ts });
+        pendingOffer = {
+            to, ts,
+            // small grace on top of the recipient's own timeout, so an Accept sent
+            // in its final second still finds us waiting
+            timer: setTimeout(() => {
+                db.ref('broadcasts/' + to + '/handoverOffer').remove();
+                pendingOffer = null;
+                showToast(t('handoverNoResponse', { name: displayName(to) }));
+                renderBroadcastsList();
+            }, HANDOVER_OFFER_TIMEOUT_MS + 3000)
+        };
+        showToast(t('handoverOfferSent', { name: displayName(to) }));
+        renderBroadcastsList();
+    }
+
+    // Broadcaster side: wire up the three things we might hear about while live
+    // (an offer to us, a decline of our offer, an accept of our offer).
+    function listenForHandover(name) {
+        offerRef = myBroadcastRef.child('handoverOffer');
+        offerRef.on('value', snap => {
+            const o = snap.val();
+            if (!o || !o.from || !o.ts) return;
+            if (Date.now() - o.ts > HANDOVER_OFFER_TIMEOUT_MS) return;  // stale, e.g. left over from earlier
+            const key = o.from + ':' + o.ts;
+            if (key === lastOfferKey) return;
+            lastOfferKey = key;
+            showHandoverOffer(String(o.from), o.ts);
+        });
+
+        replyRef = myBroadcastRef.child('handoverReply');
+        replyRef.on('value', snap => {
+            const r = snap.val();
+            if (!r || r.accepted !== false) return;
+            snap.ref.remove();
+            if (!pendingOffer || r.from !== pendingOffer.to) return;
+            const to = pendingOffer.to;
+            clearPendingOffer();
+            showToast(t('handoverDeclined', { name: displayName(to) }));
+            renderBroadcastsList();
+        });
+
+        handoverWatchRef = db.ref('handovers/' + name);
+        handoverWatchRef.on('value', snap => {
+            const h = snap.val();
+            // Only our own outstanding offer counts — a leftover pointer from an
+            // earlier session under this name must never shut a new broadcast down.
+            if (!h || !h.to || !pendingOffer || h.to !== pendingOffer.to || h.ts < pendingOffer.ts) return;
+            const to = h.to;
+            setSyncState('idle');
+            showToast(t('handoverDone', { name: displayName(to) }));
+        });
+    }
+
+    // Recipient side: the pinned Accept / Decline card. Sits on top of the
+    // NOTIFY stack (time-sensitive) and lapses when the offer would.
+    function showHandoverOffer(from, ts) {
+        const stack = document.getElementById('notify-stack');
+        stack.querySelectorAll('.handover').forEach(el => { if (el.dataset.from === from) el.remove(); });
+
+        const item = document.createElement('div');
+        item.className = 'notify-item handover';
+        item.dataset.from = from;
+
+        const msg = document.createElement('span');
+        msg.textContent = t('handoverOfferText', { name: displayName(from) });
+        if (RTL) msg.dir = 'auto';
+
+        const actions = document.createElement('div');
+        actions.className = 'handover-actions';
+        const accept  = document.createElement('button');
+        accept.className = 'handover-accept';
+        accept.textContent = t('handoverAccept');
+        const decline = document.createElement('button');
+        decline.className = 'handover-decline';
+        decline.textContent = t('handoverDecline');
+        actions.append(accept, decline);
+
+        const remaining = Math.max(0, HANDOVER_OFFER_TIMEOUT_MS - (Date.now() - ts));
+        const bar = document.createElement('div');
+        bar.className = 'notify-timer';
+        bar.style.animationDuration = remaining + 'ms';
+
+        const close = () => { clearTimeout(timer); item.remove(); };
+        const timer = setTimeout(close, remaining);
+        accept.addEventListener('click',  () => { close(); acceptHandover(from); });
+        decline.addEventListener('click', () => { close(); declineHandover(from); });
+
+        item.append(msg, actions, bar);
+        stack.insertBefore(item, stack.firstChild);
+    }
+
+    function acceptHandover(from) {
+        if (syncState !== 'broadcasting' || !myBroadcastRef) return;
+        myBroadcastRef.child('handoverOffer').remove();
+        const src = lastAvailable[from];
+        if (!src) { showToast(t('handoverGone', { name: displayName(from) })); return; }
+
+        // Take over exactly where they are, and publish it BEFORE the pointer, so
+        // the followers who are about to arrive land on the right line.
+        if (typeof src.index === 'number') advanceLine(src.index, true);
+        myBroadcastRef.update({ index: currentIndex, lastSeen: Date.now() });
+
+        const ts = Date.now();
+        const ptr = db.ref('handovers/' + from);
+        ptr.set({ to: myName, ts });
+        // Tidy up once late reconnectors can no longer need it (only if it's still ours)
+        setTimeout(() => ptr.once('value').then(s => { const v = s.val(); if (v && v.ts === ts) ptr.remove(); }), HANDOVER_POINTER_TTL_MS);
+    }
+
+    function declineHandover(from) {
+        if (syncState !== 'broadcasting' || !myBroadcastRef) return;
+        myBroadcastRef.child('handoverOffer').remove();
+        if (lastAvailable[from]) {
+            db.ref('broadcasts/' + from + '/handoverReply').set({ from: myName, accepted: false, ts: Date.now() });
+        }
+    }
+
+
     // ── SYNC UI ──────────────────────────────────────────
     function updateSyncUI() {
         const btn = document.getElementById('sync-btn');
@@ -2604,16 +2916,23 @@
         document.getElementById('sync-btn-top').style.background = colors.button || '';
         ind.style.background = colors.dot || '';
 
+        // While the connection is down, a follower's screen would otherwise look
+        // live while frozen — so the icon and status text say so. (Catching up
+        // afterwards is automatic: Firebase re-sends the current line on reconnect.)
+        const offline = firebaseConnected === false && syncState !== 'idle';
+        const offlineSuffix = offline ? t('syncOfflineSuffix') : '';
+
         if (syncState === 'idle') {
             dot.textContent      = t('syncIconIdle');
             txt.textContent      = t('syncStatusIdle');
         } else if (syncState === 'broadcasting') {
-            dot.textContent      = t('syncIconBroadcasting');
-            txt.textContent      = myName;
+            dot.textContent      = offline ? t('syncIconOffline') : t('syncIconBroadcasting');
+            txt.textContent      = myName + offlineSuffix;
         } else if (syncState === 'following') {
-            dot.textContent      = t('syncIconFollowing');
-            txt.textContent      = displayName(followingName);
+            dot.textContent      = offline ? t('syncIconOffline') : t('syncIconFollowing');
+            txt.textContent      = displayName(followingName) + offlineSuffix;
         }
+        if (offline) ind.style.background = '#f57c00';
 
         // NOTIFY is only useful to a broadcaster (a listener has nothing to
         // page out to) — re-laid-out here, the one place sync state changes.
@@ -2643,9 +2962,19 @@
             item.className = 'broadcast-item' + ((syncState === 'following' && followingName === n) ? ' selected' : '');
             const label = document.createElement('span');
             label.textContent = displayName(n);
-            const dot = document.createElement('div');
-            dot.className = 'broadcast-dot';
-            item.append(label, dot);
+            if (syncState === 'broadcasting') {
+                // A broadcaster gets a clear "Handover" button in place of the dot
+                const btn = document.createElement('button');
+                btn.className = 'broadcast-handover-btn';
+                btn.textContent = (pendingOffer && pendingOffer.to === n) ? t('handoverWaiting') : t('handoverBtn');
+                btn.disabled = !!pendingOffer;
+                btn.addEventListener('click', e => { e.stopPropagation(); onHandoverClick(n); });
+                item.append(label, btn);
+            } else {
+                const dot = document.createElement('div');
+                dot.className = 'broadcast-dot';
+                item.append(label, dot);
+            }
             item.addEventListener('click', () => onBroadcastItemClick(n));
             list.appendChild(item);
         });
@@ -2679,6 +3008,68 @@
         toastTimer = setTimeout(() => toast.classList.remove('show'), TOAST_DURATION_MS);
     }
 
+    // NOTIFY cards: at most NOTIFY_MAX_VISIBLE on screen, the rest wait in
+    // notifyQueue. A card's timeout starts when it's SHOWN, not when it arrived,
+    // so a queued message can't expire before anyone has seen it. Text is
+    // set via textContent — it can come from another device.
+    const notifyQueue = [];
+
+    function showNotifyToast(text) {
+        notifyQueue.push(text);
+        drainNotifyQueue();
+    }
+
+    function drainNotifyQueue() {
+        const stack = document.getElementById('notify-stack');
+        // Handover cards are pinned on top and don't count against the cap.
+        while (notifyQueue.length && stack.querySelectorAll('.notify-item:not(.handover)').length < NOTIFY_MAX_VISIBLE) {
+            const item = document.createElement('div');
+            item.className = 'notify-item';
+
+            const msg = document.createElement('span');
+            msg.textContent = notifyQueue.shift();
+            if (RTL) msg.dir = 'auto';
+
+            const btn = document.createElement('button');
+            btn.className = 'notify-dismiss';
+            btn.textContent = '✕';
+            btn.setAttribute('aria-label', t('notifyDismiss'));
+
+            const bar = document.createElement('div');
+            bar.className = 'notify-timer';
+            bar.style.animationDuration = NOTIFY_TIMEOUT_MS + 'ms';
+
+            const close = () => {
+                clearTimeout(timer);
+                item.remove();
+                drainNotifyQueue();
+            };
+            const timer = setTimeout(close, NOTIFY_TIMEOUT_MS);
+            btn.addEventListener('click', close);
+
+            item.append(msg, btn, bar);
+            stack.appendChild(item);
+        }
+    }
+
+    // While the Sync panel is open the stack rides above it instead of covering it
+    // (the panel holds the Handover buttons). The panel's display is flipped from
+    // many places, so we watch it rather than hooking each one.
+    function placeNotifyStack() {
+        const stack = document.getElementById('notify-stack');
+        const panel = document.getElementById('sync-panel');
+        if (panel.style.display === 'none' || !panel.offsetHeight) {
+            stack.style.bottom = '';
+        } else {
+            stack.style.bottom = (parseFloat(getComputedStyle(panel).bottom) + panel.offsetHeight + 8) + 'px';
+        }
+    }
+    (function watchNotifyStackPlacement() {
+        const panel = document.getElementById('sync-panel');
+        new MutationObserver(placeNotifyStack).observe(panel, { attributes: true, attributeFilter: ['style'] });
+        new ResizeObserver(placeNotifyStack).observe(panel);
+    })();
+
     // Fires a <NOTIFY> (from a script line, or the manual 🔔 button) to every
     // connected device, including this one. This device always toasts locally
     // right away — no round-trip through Firebase needed for that, since we
@@ -2691,7 +3082,7 @@
     // time, nothing is appended or kept.
     function fireNotify(text) {
         if (!text) return;
-        showToast(t('notifyToast', { text }));
+        showNotifyToast(t('notifyToast', { text }));
         if (myBroadcastRef) {
             myBroadcastRef.update({ notify: { text, ts: Date.now() } });
         }
@@ -2919,7 +3310,7 @@
             row.addEventListener('dblclick', () => advanceLine(i));
             if (line.type === 'action') {
                 row.className = 'action-row';
-                row.innerHTML = `<div>${line.text}</div>`;
+                row.innerHTML = `<div${BIDI_AUTO}>${line.text}</div>`;
             } else {
                 // My Lines: dim this row iff it's off (empty selection) is
                 // false AND none of its actors are in the selection. A line
@@ -2928,7 +3319,7 @@
                 const isDimmed = myLinesSelection.size > 0 &&
                     !line.actors.some(a => myLinesSelection.has(a));
                 row.className = 'line-row' + (isDimmed ? ' dimmed' : '');
-                row.innerHTML = `<div class="actor-tag" style="background:${tagBackgroundCSS(line.actors)}">${line.actors.join(' & ')}</div><div class="dialogue">${dialogueToHTML(line.dialogue)}</div>`;
+                row.innerHTML = `<div class="actor-tag" style="background:${tagBackgroundCSS(line.actors)}">${line.actors.join(' & ')}</div><div class="dialogue"${BIDI_AUTO}>${dialogueToHTML(line.dialogue)}</div>`;
             }
             c.appendChild(row);
         });
@@ -3118,7 +3509,9 @@
         // LOG above, but deliberately NOT gated on timerRunning: unlike a log
         // entry, a notify toast has no timestamp semantics, so there's no
         // reason to require the Timer to be running for a page to go out.
-        if (direction === 1 && currentIndex >= 0) {
+        // Skipped for synced advances: the broadcaster already relays each
+        // NOTIFY through Firebase, so firing it here too would show it twice.
+        if (direction === 1 && currentIndex >= 0 && !fromSync) {
             for (let i = currentIndex + 1; i <= targetIndex; i++) {
                 const l = scriptLines[i];
                 if (l && l.type === 'notify') fireNotify(l.notifyText);

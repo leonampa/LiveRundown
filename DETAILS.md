@@ -22,9 +22,17 @@ This is the detailed reference for LiveRundown: every feature, every control, an
 * **To follow:** leave the toggle off and tap a broadcaster from the Available broadcasts list
 * **To disconnect:** tap the active broadcaster again
 
-If a follower's connection drops mid-show, their view simply stays put — it doesn't know the broadcaster has kept advancing. Once reconnected, it jumps straight to the broadcaster's current index.
+If a follower's connection drops mid-show, their view simply stays put — it doesn't know the broadcaster has kept advancing. While it's down, the sync icon turns 🟠, so a frozen screen never looks live; a toast announces the drop and the reconnect. Once reconnected, it jumps straight to the broadcaster's current index.
 
 * **Auto-pair** On page load, LiveRundown briefly checks for a single active broadcaster and — if it finds exactly one — follows it automatically, with a toast confirming who you were paired to. It detects a broadcaster with one of two ways: instantly if another LiveRundown tab/window is open in the *same browser*, or via the same *public network* (matched by public IP) if it's a different browser or a different device. If it finds no broadcaster, or more than one, it does nothing — same as opening the app normally  Controlled by `AUTO_PAIR` in index.html (see [Edit index.html](#edit-indexhtml))
+
+* **Handover** * While you're broadcasting, every other broadcaster in the list shows a **Handover** button (instead of the follower's green dot). Tap it to make an offer
+ * The other broadcaster gets an **Accept / Decline** card, pinned above their notifications. Nothing moves until they accept — and only *your* followers are ever affected, so an offer landing on a different rehearsal is harmless
+ * **Accept:** they take over from exactly the line you were on, all of your followers switch to them, and your device stops broadcasting
+ * **Decline** or no answer within `HANDOVER_OFFER_TIMEOUT_MS` (30 seconds): you get a toast and nothing changes
+ * A follower who was offline during the handover is still redirected when they reconnect (for `HANDOVER_POINTER_TTL_MS`, 2 minutes)
+ * The recipient must be broadcasting themselves — a follower can't accept
+ * Handover keeps a short-lived pointer under `handovers/` in Firebase. The open rules from the setup guide already allow it; if you've locked your rules down, allow read/write on `broadcasts/` and `handovers/`
 
 ## Countdown dashboard
 
@@ -71,8 +79,10 @@ Sends an instant toast notification to every connected device — broadcaster an
 
 * **Automatic:** any `<NOTIFY>` line in `script.md` fires the moment it's reached while advancing forward. Formatted as: `<NOTIFY> Message`
 * **Manual:** the **🔔 Notify button** (broadcaster only — hidden for followers, since there's nothing for them to page out to) opens a free-text prompt and sends it the same way
-* Toasts have no history — each one simply replaces whatever was showing, nothing is logged or saved
-* A device that reconnects mid-show won't see a stale notification replayed — only genuinely new ones trigger a toast
+* Notifications stay on screen until you tap their **✕**, or until `NOTIFY_TIMEOUT_MS` (1 minute by default) passes — so prompters, who can't tap, never end up with a stuck message. The timeout starts when a notification is shown, and a shrinking bar along its bottom edge shows the time left
+* Up to `NOTIFY_MAX_VISIBLE` (3) notifications stack at once; any more wait in a queue and appear as earlier ones close
+* No history — closed or expired notifications are gone, nothing is logged or saved
+* A device that reconnects mid-show won't see a stale notification replayed — only genuinely new ones show up
 
 ## Checklist
 
@@ -128,6 +138,7 @@ To set up and customize your edition of LiveRundown, edit the ✏️ **CONFIG** 
 * **`colorPalette`** - The list of colors used for each actor, in order (first pinned actors, then by first appearance)
 * **Countdown dashboard proximity warnings** - Toggle if countdown warnings are displayed (`SHOW_COUNTDOWN_WARNINGS`), if flashing effects are allowed (`FLASHING_EFFECTS`), and how many lines are remaining to trigger the "approaching" state (`WARNING_THRESHOLD`). (see [Countdown Dashboard](#countdown-dashboard))
 * **`AUTO_PAIR`** - Toggle automatic pairing to a lone live broadcaster on launch. (see [Sync → Auto-pair](#sync))
+* **`RTL`** - Mirror the interface for right-to-left languages: buttons, panels and notifications move to the other side, and each script line takes its direction from its own text (so an English stage direction inside a Hebrew script keeps its normal order). The PDF export mirrors its layout as well (colored tag on the right, page number on the left). **Known limit:** the PDF can't typeset Hebrew/Arabic *text* — its built-in font has no such letters and its layout engine has no right-to-left support — so RTL-script scripts should be printed from the browser for now
 * **`AUTO_COLLAPSE_ON_FOLLOW`** - Toggle whether the bottom button row auto-collapses when this device starts following a broadcaster
 * **`NOTEPAD_SHORTHAND_CURRENT_LINE_KEY` / `NOTEPAD_SHORTHAND_LOG_LINE_KEY`** - The keybinds for the Notepad's line-reference shorthand, or disable either by setting it to `''` (see [Notepad](#notepad))
 * **`NOTEPAD_MARKDOWN`** - Toggle Markdown typing shortcuts in the Notepad (`*italic*`, `**bold**`, `***bold italic***`)
