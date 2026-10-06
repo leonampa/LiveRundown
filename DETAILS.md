@@ -140,6 +140,7 @@ To set up and customize your edition of LiveRundown, edit the ✏️ **CONFIG** 
 * **`AUTO_PAIR`** - Toggle automatic pairing to a lone live broadcaster on launch. (see [Sync → Auto-pair](#sync))
 * **`RTL`** - Mirror the interface for right-to-left languages: buttons, panels and notifications move to the other side, and each script line takes its direction from its own text (so an English stage direction inside a Hebrew script keeps its normal order). The PDF export mirrors its layout as well (colored tag on the right, page number on the left). **Known limit:** the PDF can't typeset Hebrew/Arabic *text* — its built-in font has no such letters and its layout engine has no right-to-left support — so RTL-script scripts should be printed from the browser for now
 * **`AUTO_COLLAPSE_ON_FOLLOW`** - Toggle whether the bottom button row auto-collapses when this device starts following a broadcaster
+* **`KEEP_SCREEN_AWAKE`** - While a script is loaded, keep the device screen from dimming or sleeping (default `true`). 
 * **`NOTEPAD_SHORTHAND_CURRENT_LINE_KEY` / `NOTEPAD_SHORTHAND_LOG_LINE_KEY`** - The keybinds for the Notepad's line-reference shorthand, or disable either by setting it to `''` (see [Notepad](#notepad))
 * **`NOTEPAD_MARKDOWN`** - Toggle Markdown typing shortcuts in the Notepad (`*italic*`, `**bold**`, `***bold italic***`)
 * **`SYNC_COLORS`** / **`ANIMALS`** - Sync state colors, and the random animal names given to new broadcasters
