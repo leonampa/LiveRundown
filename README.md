@@ -6,7 +6,8 @@ LiveRundown is an open-source, real-time theatrical rundown engine, designed to 
 
 ### [Try out the Demo](https://leonampa.github.io/liverundown/demo), or [Jump to Setup](#setup)
 
-<video src="https://github.com/user-attachments/assets/7b52f6a1-ca9a-42d6-870e-d7ce88039eb3" autoplay muted loop></video>
+<a href="https://www.youtube.com/watch?v=XtJOee4_I00"><img src="https://raw.githubusercontent.com/leonampa/LiveRundown/refs/heads/main/promo.png" alt="Watch the LiveRundown promo  on YouTube"></a>
+
 
 ## The Problem
 During theatrical productions involving large ensembles (50+ cast and production crew members), traditional script management breaks down:
